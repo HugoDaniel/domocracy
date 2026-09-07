@@ -1,144 +1,151 @@
 # domocracy
 
-I keep writing the same 300 lines in every project. Make some elements, put them in a container, take them out again, and then a click handler somewhere that has to work out which row the click was on and what the click should mean in that part of the page.
+A container's children change only through five named operations, handlers are delegated from an ancestor, and what a click means is decided by the ancestors it happens inside.
 
-So I wrote those 300 lines once, properly, and measured them against hand-written DOM code in the js-framework-benchmark to see what the abstraction costs.
+Three ES modules, no dependencies, no build step. Open a file with `<script type="module">` and use it.
 
-It is three ES modules, no dependencies, no build step, and no attribute language. You can open a file with `<script type="module">` and use it.
-
-```js
-import { region, op, on, dispatch } from './domocracy.js';
+```sh
+npm install domocracy
 ```
 
-## Regions
+## The API
 
-**A container whose children change only through five named operations**
+`domocracy.js` is the core.
 
-`region(container, adapter)` takes over the direct children of an element. From then on they change through `insert`, `move`, `update`, `remove` and `clear`, and through nothing else. The adapter says how a child is rendered, and that is the only place in your app that builds DOM:
+| | |
+| --- | --- |
+| `region(container, adapter, options?)` | Takes over a container's direct children. Returns the region. |
+| `on(root, type, selector, handler)` | One native listener on the root, matched with `Element.closest`. Returns the function that removes it. |
+| `dispatch(node, type, detail?)` | A bubbling, cancelable `CustomEvent`. False when a handler called `preventDefault()`. |
+| `op.insert / move / update / remove / clear` | The five operations, as frozen values. Nothing runs. |
+| `validate(ops)` | Dry runs a sequence over any containers and returns it frozen. Changes nothing. |
+| `apply(operation, adapter)` | The DOM handler: one validated operation. The only function that writes. |
+| `regionOf(container)` | The region of a container, or null. |
+| `ownerOf(operation)` | The region that would execute an operation, read from the tree as it is. |
+| `divide(operation)` | That operation as the operations its current owners would each execute. |
+| `guard` | `{ reason }`, set while an interpreter runs. Every region refuses to write until it is null. |
+
+A region:
+
+| | |
+| --- | --- |
+| `.insert(specs, before?)` | Builds children from specs, before a node or at the end. |
+| `.move(node, before?, to?)` | Moves a node here or into another region. It stays alive. |
+| `.update(node, data?)` | Hands the node and the payload to the adapter. |
+| `.remove(nodes)` | One node or an array of them. |
+| `.clear()` | Empties the container. |
+| `.swap(a, b)` | Exchanges two children, by node or by position. One group of two moves. |
+| `.execute(ops)` | One operation or a sequence, validated as a whole and run in order. |
+| `.insertAt / removeAt / updateAt / moveAt` | The same operations said by position, range checked. |
+| `.at(element)` | The child of this region that contains an element, with its index, or null. |
+| `.observe(fn)` | Every committed group, in order. Returns the function that removes it. |
+| `.nodes` `.length` `.container` `.items` | The live children, how many, the element, and the mirror or null. |
+
+`intent.js` is contextual meaning, on top of the core.
+
+| | |
+| --- | --- |
+| `scope(element)` | An element that answers for the intents raised below it. |
+| `scope.handle(type, interpreter)` | One interpreter per type. It reads the tree and returns a plan. |
+| `scope.dispose()` | Gives the element up again. |
+| `intent(source, type, args?)` | Raises a request. Returns what happened: trace, operations, effects. |
+| `effect(type, adapter)` | What runs one kind of effect, after the operations. |
+
+`surface.js` is for a document that lives elsewhere. It is provisional.
+
+| | |
+| --- | --- |
+| `addressOf(element)` | The address of the control an element is in, or null. |
+| `controlsFor(surface, address)` | Every presentation of one address, in document order. |
+| `operationsFor(surface, changes)` | Change records as operations. Pure. |
+| `apply(surface, changes, adapter?)` | Runs a notification, record by record. |
+
+## Examples
+
+A list whose children only change through operations:
 
 ```js
+import { region } from 'domocracy';
+
 const layers = region(document.getElementById('layers'), {
-  create(spec) {
-    const li = document.createElement('li');
-    li.textContent = spec.name;
-    return li;
-  },
-  update(node, data) {
-    node.textContent = data.name;
-  },
+  create(spec) { const li = document.createElement('li'); li.textContent = spec.name; return li; },
+  update(node, data) { node.textContent = data.name; },
 });
 
 layers.insert([{ name: 'sky' }, { name: 'trees' }, { name: 'dust' }]);
+layers.updateAt(0, { name: 'sky, at night' });
+layers.swap(0, 2);
+layers.removeAt(1);
 ```
 
-The code above puts three list items in the container. There is no diffing, no scheduler and no template. `insert` returns with the document already changed.
+The code above changes the document four times, and each call returns with the change already made. No diffing, no scheduler, no template.
 
-Each of the five is also a value you can build without running it, with `op`:
+Two changes as one group:
 
 ```js
+import { op } from 'domocracy';
+
 layers.execute([
-  op.update(layers.nodes[0], { name: 'sky, at night' }),
-  op.remove([layers.nodes[2]]),
+  op.move(layers.nodes[2], layers.container, layers.nodes[0]),
+  op.remove([layers.nodes[1]]),
 ]);
 ```
 
-The code above is one group. A group is checked as a whole before the first operation runs, so a group that could not finish never starts. Checking it is a dry run over a model of the tree, which catches the case where one operation depends on another: remove a node and then insert before it, and the group is refused rather than half applied.
+A group is checked as a whole before the first operation runs, against a model of the tree rather than the tree itself. Remove a node and then insert before it, and the group is refused instead of half applied.
 
-Identity is the node. Position is where a node sits in its region right now, and it changes when the region changes, which is why `insert` and `move` name the node they go before and not an index. There are no ids, no key maps and no expandos on your elements.
-
-## The click is a proposal
-
-**What an action means is decided by the ancestors it happens inside**
-
-`on(root, type, selector, handler)` registers one native listener on the root and matches each event with `Element.closest`. Elements created later and elements moved in from somewhere else are covered, because nothing was ever attached to them:
+One listener for every row, including the rows that don't exist yet:
 
 ```js
+import { on, dispatch } from 'domocracy';
+
 on(document, 'click', 'li', (event, layer) => dispatch(layer, 'layer:pick'));
-on(document, 'layer:pick', 'li', (event, layer) => layers.update(layer, { name: layer.textContent + ' *' }));
+on(document, 'layer:pick', 'li', (event, layer) => layers.update(layer, { name: 'picked' }));
 ```
 
-`dispatch` sends a bubbling, cancelable `CustomEvent`. The layer says what happened to it, an ancestor listens for `layer:pick` and decides what to do, and the layer itself holds no opinion.
+Nothing is attached to a row, so a row created later or moved in from somewhere else is covered. The row says what happened to it and an ancestor decides what to do about it.
 
-That is the whole core, and for most pages it is enough. The name comes from the second module, which takes the same idea further.
-
-The same list of layers means different things in different places. In the layers panel a click selects, in the export dialog it toggles a checkbox, and in a read-only preview it does nothing at all. `intent.js` lets an ancestor answer for what happens below it:
+The same list, meaning two different things in two places:
 
 ```js
-import { scope, intent } from './intent.js';
+import { op, on } from 'domocracy';
+import { scope, intent } from 'domocracy/intent';
 
-const panel = scope(document.getElementById('layers-panel'));
-
-panel.handle('layer:pick', (raised) => ({
+scope(document.getElementById('editor')).handle('layer:pick', (raised) => ({
   disposition: 'consume',
-  operations: [op.update(raised.source, { name: raised.source.textContent + ' *' })],
+  operations: [op.update(raised.source, { name: 'selected' })],
 }));
+
+scope(document.getElementById('preview')).handle('layer:pick', () => ({ disposition: 'pass' }));
 
 on(document, 'click', 'li', (event, layer) => intent(layer, 'layer:pick'));
 ```
 
-The code above registers an interpreter and then raises an intent from every clicked layer. The interpreter reads the tree and returns a plan, and nothing in that plan has run: the operations are values. The scopes above the element are asked in order, nearest first, and each one passes, adds to the plan, or consumes the intent. Then the whole plan is validated and executed, and you get back what happened: which scopes answered, which operations ran, what was asked of the outside world.
+The scopes above the clicked row are asked in order, nearest first. An interpreter reads the tree and returns a plan, and the operations in that plan are values that have not run. Writing to a region from inside an interpreter throws. Move the list from the editor into the preview and the same click means nothing, with nothing changed in the list.
 
-Put the same list inside a different scope and the same click means something else, with nothing changed in the list.
+## Benefits
 
-An interpreter that writes to a region throws. That is enforced, not just asked for, and it is what makes a plan worth having: you can look at what an action was going to do before any of it happened.
+* **Nothing per node.** No wrappers, no expandos, no key maps, no per-node listeners. Your state is your data and the DOM.
+* **A change has a name.** Five operations, as values you can build, hold, log and check before anything runs.
+* **A group doesn't half apply for a reason you could have seen.** The dry run catches a dependency between two operations before the first one runs.
+* **Nodes stay alive.** A move is `moveBefore` where the browser has it, so focus, selection, animations and an iframe's document survive it.
+* **Contextual meaning.** With `intent.js` the same control does different things in different places, and the control holds no opinion about which.
+* **Small and readable.** The core is one file you can read in a sitting.
 
-## Documents on screen
+## Drawbacks
 
-**A commit comes back as change records, and each record becomes operations**
+* **Size is a loss.** 3.5 KB compressed against 2.5 KB for the same app written by hand, measured in the js-framework-benchmark. CPU is a tie there, 0.986x on the geometric mean of the nine benchmarks, and run memory is 0.95x. Size is what you pay.
+* **No rollback.** An adapter that throws halfway leaves the operations before it applied. You get `committed`, the number that ran, and you ask the document what the truth is.
+* **You write the rendering.** `create` and `update` are yours. There is no template syntax and there is not going to be one.
+* **No virtualization, no batching, no scheduling.** A thousand rows is a thousand rows.
+* **The items mirror costs a copy per operation.** It is optional, it is off by default, and I would leave it off.
+* **`surface.js` has never met a real editing bridge.** It is tested against a fake one I wrote. Expect the address format and the change records to move.
 
-`surface.js` is the third module and the provisional one. It is for an editor where a document lives somewhere else, with its own undo and its own idea of what an edit means, and the page is one presentation of it.
+## More
 
-A control carries the address it presents in `data-address`. There is no registry from address to node, the query is the lookup, and one address can be on screen in several places at once. When the document commits, the records come back and the surface turns each one into the operations that catch the page up.
-
-I built it against a fake document because the real bridge is SJON in another project of mine. It is the part most likely to change.
-
-## What a sequence promises
-
-**Nothing is rolled back, and you are told how far it got**
-
-An adapter that throws halfway leaves the operations before it applied. There is no transaction to undo. The error carries `committed`, the number of operations of the sequence you handed over that ran, and a plan counts in the plan's terms and a notification in the notification's.
-
-An observer or an adapter is allowed to write to a region while a sequence is running, because two presentations of one document are made of exactly that. What it costs depends on the sequence. A group pays one dry run for all its operations, so a write from inside it is outside what that dry run saw. A plan and a notification run each operation as its own group, so each one is checked when its turn comes, and each one is executed by the region that owns the node at that moment and not by the region that owned it when the plan was written.
-
-That last part took four rounds of review to get right, and the four failures were all the same failure: execution trusting something decided before a callback was allowed to change it.
-
-`docs/sequences.md` has the whole contract.
-
-## The numbers
-
-I ran the [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark) on 7 September 2026, headless Chrome 152 on an M4 Pro, this library and `vanillajs` in the same session:
-
-| | vanillajs | this |
-| --- | ---: | ---: |
-| CPU, geometric mean of the nine benchmarks | 1.00x | 0.986x |
-| run memory | 1.9 MB | 1.8 MB (0.95x) |
-| compressed size | 2.5 KB | 3.5 KB (1.40x) |
-
-CPU is a tie. Painting a thousand table rows costs the same whoever asked for them, and the JavaScript on top of it is a few percent of the benchmark, so a tie is the honest result and not a win. Memory is a small win, because the page keeps no per-row state at all: the ids and the labels live in the cells that show them. Size is a loss and I am reporting it rather than claiming it.
-
-The harness is not in this repository. It lives in the project this code came out of, and the numbers above predate the last 69 bytes of it.
-
-## Running it
+[Operations](docs/operations.md), [intents](docs/intents.md), [surface](docs/surface.md), and [what a sequence promises](docs/sequences.md), which is the one with the contracts in it.
 
 ```sh
-npm test                 # the pure tests, then the browser ones
-node --test tests/pure   # 57 tests over a fake tree, milliseconds, no Chrome
-node tests/run.mjs       # 53 tests in headless Chrome
+npm test    # 57 tests over a fake tree, then 53 in headless Chrome
 ```
 
-The pure tests run the checking half of an execute, the mirror and the fake document against plain objects. The browser tests cover what only a browser can answer: `moveBefore`, shadow roots, custom element reactions and table sections. `tests/chrome.mjs` is a DevTools client with no dependencies, so there is nothing to install for either.
-
-## Docs
-
-* [Operations](docs/operations.md): regions, the five operations, adapters, positions, the optional items mirror.
-* [Intents](docs/intents.md): scopes, plans, dispositions, effects.
-* [Surface](docs/surface.md): addresses, change records, applying a notification.
-* [Sequences](docs/sequences.md): what a group, a plan and a notification each promise, and what the guard covers.
-
-## Conclusion
-
-This is a library for pages where the structure of the document is the state, and where what a control means depends on where it sits. It doesn't virtualize long lists, it doesn't batch or schedule anything, and it has no story for animation beyond keeping your nodes alive across a move.
-
-The surface module is the part I am least sure about. It has never been used against a real editing bridge, only against a fake one I wrote to test it, and the first real binding is likely to change how an address is spelled and what a change record carries.
-
-The thing I still don't know is whether the intent layer earns its 228 lines. Every app I have written could have used a `switch` statement in one handler instead. The argument for it is the second and third presentation of the same document, which is exactly the case I have not built yet.
+CC0. Take it.
