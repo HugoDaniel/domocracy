@@ -1,0 +1,29 @@
+{
+  "name": "domocracy",
+  "version": "1.0.0",
+  "description": "Children that change only through named operations, delegated handlers, and actions the ancestors decide the meaning of.",
+  "license": "CC0-1.0",
+  "type": "module",
+  "author": "Hugo Daniel",
+  "repository": { "type": "git", "url": "git+https://github.com/HugoDaniel/domocracy.git" },
+  "keywords": ["dom", "ui", "no-dependencies", "no-build", "operations", "event-delegation"],
+  "files": [
+    "domocracy.js",
+    "domocracy.d.ts",
+    "intent.js",
+    "intent.d.ts",
+    "surface.js",
+    "surface.d.ts"
+  ],
+  "exports": {
+    ".": { "types": "./domocracy.d.ts", "default": "./domocracy.js" },
+    "./intent": { "types": "./intent.d.ts", "default": "./intent.js" },
+    "./surface": { "types": "./surface.d.ts", "default": "./surface.js" }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test tests/pure && node tests/run.mjs",
+    "test:pure": "node --test tests/pure",
+    "test:browser": "node tests/run.mjs"
+  }
+}

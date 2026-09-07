@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>domocracy tests</title>
+<style>body { font: 14px/1.4 system-ui, sans-serif; margin: 2rem; } .ok { color: #1a7f37; } .fail { color: #b3261e; } #sandbox { position: absolute; left: -9999px; }</style>
+</head>
+<body>
+<h1>domocracy tests</h1>
+<pre id="out">running</pre>
+<div id="sandbox"></div>
+<script type="module" src="./domocracy.test.js"></script>
+<script type="module" src="./intent.test.js"></script>
+<script type="module" src="./surface.test.js"></script>
+<script type="module">import { run } from './harness.js'; run();</script>
+</body>
+</html>
