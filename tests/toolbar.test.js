@@ -1,10 +1,11 @@
 // Browser tests for the toolbar example: one toolbar, four rooms. What is here
 // needs a real tree: focus across a move, the walk through nested scopes, the
 // guard during a rehearsal and the delegated rules on a real root.
-import { region } from '../domocracy.js';
+import { op, region } from '../domocracy.js';
 import { test, assert, equal, note } from './harness.js';
 import { mountToolbarDemo } from '../examples/toolbar/main.js';
-import { explain, nameOf, rehearse, room } from '../examples/toolbar/scopes.js';
+import { caption, explain, nameOf, rehearse, room } from '../examples/toolbar/scopes.js';
+import { createToolbar } from '../examples/toolbar/toolbar.js';
 
 const same = (actual, expected, message) => assert(actual === expected, `${message}: not the same node`);
 const moves = 'moveBefore' in Element.prototype;
@@ -244,7 +245,7 @@ test('a rehearsal outlines the route in place and marks the nodes the plan names
   assert(demo.rehearsal.parentElement.querySelector('.rehearsal-head').textContent.includes('Card “Write the docs”: continue (1 operation) → Board: consume (1 effect) → Page: unreached'), 'the head is the route in one line');
 
   over(button(demo, 'ui:remove'));
-  equal(affected(demo), ['the dock: receives', 'Write the docs: leaves', 'the toolbar: moves'], 'Remove would move the toolbar home and take the card');
+  equal(affected(demo), ['the dock: receives', 'Write the docs: leaves', 'toolbar A: moves'], 'Remove would move the toolbar home and take the card');
 
   const cross = second.querySelector('.card-remove');
   over(cross);
@@ -267,7 +268,7 @@ test('the toolbar can be put in any card, and Up then means that card', sandbox 
   const dock = second.querySelector('.card-dock');
   over(dock);
   equal(routeOf(demo), ['Page: consume', 'Board: skipped', 'Card “Ship it”: skipped'], 'Toolbar here walks up through the card and the board to the page');
-  equal(affected(demo), ['the toolbar: moves', 'the slot of “Ship it”: receives'], 'and would move the toolbar into this card');
+  equal(affected(demo), ['toolbar A: moves', 'the slot of “Ship it”: receives'], 'and would move the toolbar into this card');
   dock.click();
   same(demo.toolbar.element.closest('.card'), second, 'the toolbar is in the second card');
   equal(place(demo, 'board').getAttribute('aria-pressed'), 'true', 'and the board is still the pressed place');
@@ -310,15 +311,15 @@ test('a lock on the slot consumes Remove before the card and the board, and unlo
   demo.dispose();
 });
 
-const caption = (demo, type) => demo.toolbar.element.querySelector(`[data-intent="${type}"]`).getAttribute('aria-describedby');
-const captionText = (demo, type) => document.getElementById(caption(demo, type)).textContent;
+const captionId = (demo, type) => demo.toolbar.element.querySelector(`[data-intent="${type}"]`).getAttribute('aria-describedby');
+const captionText = (demo, type) => document.getElementById(captionId(demo, type)).textContent;
 const refused = (demo, type) => button(demo, type).getAttribute('aria-disabled') === 'true';
 
 test('a button says what it would do here, and its availability is the plan it would get', sandbox => {
   const demo = mountToolbarDemo(sandbox);
   equal(captionText(demo, 'ui:apply'), 'no room answers here', 'in the dock a caption says nobody answers');
   equal(refused(demo, 'ui:apply'), false, 'and the button is not refused, because nothing refused it');
-  equal(captionText(demo, 'toolbar:next'), 'Put the toolbar in the Form', 'Next room says where it would go');
+  equal(captionText(demo, 'toolbar:next'), 'Put toolbar A in the Form', 'Next room says where it would go');
 
   go(demo, 'form');
   equal(captionText(demo, 'ui:apply'), 'The form is as committed.', 'a clean form refuses Apply and says why');
@@ -344,10 +345,10 @@ test('a button says what it would do here, and its availability is the plan it w
 test('meanings compose along the route, and a lock refuses in its own words', sandbox => {
   const demo = mountToolbarDemo(sandbox);
   go(demo, 'board');
-  equal(captionText(demo, 'ui:apply'), 'Tick “Write the docs”', 'the card says what Apply does');
+  equal(captionText(demo, 'ui:apply'), 'Tick “Write the docs”, then count what is done', 'the card and the board each say their part');
   button(demo, 'ui:apply').click();
-  equal(captionText(demo, 'ui:apply'), 'Untick “Write the docs”', 'and says the opposite once ticked');
-  equal(captionText(demo, 'ui:remove'), 'Hand the toolbar back to the dock, then remove “Write the docs”', 'two rooms, one sentence, nearest first');
+  equal(captionText(demo, 'ui:apply'), 'Untick “Write the docs”, then count what is done', 'and the card says the opposite once ticked');
+  equal(captionText(demo, 'ui:remove'), 'Hand toolbar A back to the dock, then remove “Write the docs”', 'two rooms, one sentence, nearest first');
   equal(captionText(demo, 'ui:up'), '“Write the docs” is already at the top.', 'the board refuses Up on the first card');
   equal(refused(demo, 'ui:up'), true);
 
@@ -359,11 +360,11 @@ test('meanings compose along the route, and a lock refuses in its own words', sa
 
   const cross = card.querySelector('.card-remove');
   equal(cross.getAttribute('aria-disabled'), 'false', 'the × is beside the slot, so the lock does not refuse it');
-  equal(cross.title, 'Hand the toolbar back to the dock, then remove “Write the docs”', 'and its title says what it would do');
+  equal(cross.title, 'Hand toolbar A back to the dock, then remove “Write the docs”', 'and its title says what it would do');
   equal(place(demo, 'board').getAttribute('aria-disabled'), 'true', 'the pressed place is refused, because the toolbar is already there');
-  equal(place(demo, 'board').title, 'The toolbar is already in the Board.');
-  equal(place(demo, 'form').title, 'Put the toolbar in the Form', 'and the others say where they lead');
-  equal(demo.rooms.board.element.querySelectorAll('.card')[1].querySelector('.card-dock').title, 'Put the toolbar in “Ship it”', 'a card\'s own button names the card');
+  equal(place(demo, 'board').title, 'Toolbar A is already in the Board.');
+  equal(place(demo, 'form').title, 'Put toolbar A in the Form', 'and the others say where they lead');
+  equal(demo.rooms.board.element.querySelectorAll('.card')[1].querySelector('.card-dock').title, 'Put toolbar A in “Ship it”', 'a card\'s own button names the card');
   demo.dispose();
 });
 
@@ -390,5 +391,155 @@ test('the panel shows each room\'s words, and explain reports what interpret ref
   assert(told.refused.includes('no writes while interpreting'), `what interpret refuses is refused: ${told.refused}`);
   equal(told.answered, false);
   sloppy.dispose();
+  demo.dispose();
+});
+
+test('a refusal after a nearer contribution keeps the contribution: the caption says both and the button stays available', sandbox => {
+  // outer > inner > toolbar, with a region the inner room writes to.
+  const outer = document.createElement('div'), inner = document.createElement('div'), list = document.createElement('ul');
+  outer.append(inner);
+  inner.append(list);
+  sandbox.append(outer);
+  const rows = region(list, { create: text => Object.assign(document.createElement('li'), { textContent: text }), update: (node, data) => { node.textContent = data; } });
+  rows.insert(['a']);
+  const near = room(inner, 'Inner', {
+    'ui:apply': () => ({ disposition: 'continue', meaning: 'Rename a', operations: [op.update(list.firstElementChild, 'renamed')] }),
+    'ui:cancel': () => ({ disposition: 'continue', operations: [op.update(list.firstElementChild, 'renamed anyway')] }),
+  });
+  const far = room(outer, 'Outer', {
+    'ui:apply': () => ({ disposition: 'consume', refused: 'The outer room says no.', effects: [] }),
+    'ui:cancel': () => ({ disposition: 'consume', refused: 'The outer room says no.', effects: [] }),
+    'ui:up': () => ({ disposition: 'consume', refused: 'Nothing to move.', effects: [] }),
+  });
+  const toolbar = createToolbar();
+  inner.append(toolbar.element);
+  toolbar.refresh();
+
+  const apply = toolbar.element.querySelector('[data-intent="ui:apply"]');
+  const told = explain(apply, 'ui:apply');
+  equal(told.meaning, 'Rename a', 'the inner meaning is kept');
+  equal(told.refused, 'The outer room says no.', 'and so is the refusal');
+  equal(told.refusedBy, 'Outer', 'with who refused');
+  equal(told.changes, true, 'and the plan still changes something');
+  const said = caption(told);
+  equal(said, { text: 'Rename a, then Outer refuses: The outer room says no.', state: 'partly', available: true }, 'the caption says both and the button is available');
+  equal(document.getElementById(apply.getAttribute('aria-describedby')).textContent, said.text, 'and that is what the toolbar shows');
+  equal(apply.getAttribute('aria-disabled'), 'false');
+
+  const cancel = toolbar.element.querySelector('[data-intent="ui:cancel"]');
+  equal(caption(explain(cancel, 'ui:cancel')).text, 'Something would still change, then Outer refuses: The outer room says no.', 'a contribution without words is still not hidden');
+
+  const up = toolbar.element.querySelector('[data-intent="ui:up"]');
+  equal(caption(explain(up, 'ui:up')), { text: 'Nothing to move.', state: 'refused', available: false }, 'a refusal with nothing before it is a plain refusal');
+  equal(up.getAttribute('aria-disabled'), 'true');
+
+  apply.click();
+  equal(list.firstElementChild.textContent, 'renamed', 'pressing it did what the caption said');
+  toolbar.dispose();
+  near.dispose();
+  far.dispose();
+});
+
+test('a refresh follows each raise and each input once, sees the finished action, and never follows an interpretation', sandbox => {
+  const demo = mountToolbarDemo(sandbox);
+  const before = demo.refreshes;
+  const over = control => control.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+
+  over(button(demo, 'ui:apply'));
+  button(demo, 'ui:apply').focus();
+  equal(demo.refreshes, before, 'rehearsing for the panel is interpretation, and interpretation refreshes nothing');
+  const words = explain(button(demo, 'ui:apply'), 'ui:apply');
+  equal(demo.refreshes, before, 'nor does asking explain');
+  equal(words.answered, false);
+
+  go(demo, 'board');
+  equal(demo.refreshes, before + 1, 'one raise, one refresh');
+  button(demo, 'ui:apply').click();
+  equal(demo.refreshes, before + 2, 'one click on the toolbar, one refresh');
+  equal(status(demo), '1 of 3 cards done.', 'the tally effect had run by then');
+  equal(captionText(demo, 'ui:apply'), 'Untick “Write the docs”, then count what is done', 'so the caption describes the next press');
+
+  const name = demo.rooms.form.element.querySelector('input[name="name"]');
+  name.value = 'Grace';
+  name.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  equal(demo.refreshes, before + 3, 'one input, one refresh');
+  demo.dispose();
+});
+
+const alt = (target, code) => target.dispatchEvent(new KeyboardEvent('keydown', { code, altKey: true, bubbles: true, cancelable: true }));
+
+test('a shortcut raises from whatever has focus, and the rooms answer it as they answer a button', sandbox => {
+  const demo = mountToolbarDemo(sandbox);
+  const name = demo.rooms.form.element.querySelector('input[name="name"]');
+  name.focus();
+  name.value = 'Grace';
+  name.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  const rows = () => Array.from(demo.shortcuts.querySelectorAll('.shortcut'), row => row.textContent);
+  assert(demo.shortcuts.previousElementSibling.textContent.startsWith('From “Name” in the Form'), `the head names the field by its label: ${demo.shortcuts.previousElementSibling.textContent}`);
+  assert(rows()[0].includes('Commit 1 changed field'), `the panel says what Alt+A would do from the field: ${rows()[0]}`);
+  assert(rows()[5].includes('this control is in none'), `and that Alt+N has no toolbar to move: ${rows()[5]}`);
+  alt(name, 'KeyA');
+  equal(name.defaultValue, 'Grace', 'Alt+A in the field committed it through the Form');
+  assert(latest(demo).includes('ui:apply → consumed. Form: consume'), `the same route a button takes: ${latest(demo)}`);
+  alt(name, 'KeyN');
+  assert(status(demo).includes('this control is in none'), 'Alt+N from the field is refused, and says why');
+
+  const list = demo.rooms.listbox.element.querySelector('.options');
+  const blueberry = list.children[1];
+  blueberry.click();
+  blueberry.focus();
+  alt(blueberry, 'ArrowUp');
+  same(list.children[0], blueberry, 'Alt+Up on the focused option moved the selected option, without moving the focus');
+  same(document.activeElement, blueberry, 'and the focus stayed, because the listbox left the modified arrow alone');
+  alt(blueberry, 'KeyR');
+  equal(blueberry.isConnected, false, 'Alt+R removed it');
+  equal(list.children[0].getAttribute('aria-selected'), 'true', 'and the heir is selected, as the button would have done');
+
+  const cards = demo.rooms.board.element.querySelector('.cards');
+  const card = cards.children[0];
+  const box = card.querySelector('.card-lock input');
+  box.focus();
+  alt(box, 'ArrowDown');
+  same(cards.children[1], card, 'Alt+Down on a card\'s checkbox moved that card, through the card and the board');
+
+  const next = button(demo, 'toolbar:next');
+  next.focus();
+  alt(next, 'KeyN');
+  same(demo.toolbar.element.parentElement, demo.rooms.form.slot, 'Alt+N inside a toolbar moves that toolbar');
+  same(demo.toolbars.b.element.parentElement, demo.dock, 'and not the other');
+  demo.dispose();
+});
+
+test('two toolbars are answered by their own rooms, and share one when they share a slot', sandbox => {
+  const demo = mountToolbarDemo(sandbox);
+  const { a, b } = demo.toolbars;
+  const captionOf = (toolbar, type) => document.getElementById(toolbar.element.querySelector(`[data-intent="${type}"]`).getAttribute('aria-describedby')).textContent;
+  same(b.element.parentElement, demo.dock, 'both start in the dock');
+
+  demo.element.querySelector('.place[data-toolbar="b"][data-room="listbox"]').click();
+  same(b.element.parentElement, demo.rooms.listbox.slot, 'B went to the listbox');
+  same(a.element.parentElement, demo.dock, 'and A stayed');
+  go(demo, 'form');
+  same(a.element.parentElement, demo.rooms.form.slot, 'A went to the form');
+  equal(captionOf(a, 'ui:apply'), 'The form is as committed.', "A's Apply is the form's");
+  equal(captionOf(b, 'ui:apply'), 'no room answers here', "B's Apply has no meaning in a listbox");
+  equal(captionOf(b, 'ui:up'), 'Select an option first.', "and B's Up is the listbox's");
+  equal(demo.element.querySelector('.place[data-toolbar="a"][data-room="form"]').getAttribute('aria-pressed'), 'true', 'each row of places follows its toolbar');
+  equal(demo.element.querySelector('.place[data-toolbar="b"][data-room="listbox"]').getAttribute('aria-pressed'), 'true');
+
+  go(demo, 'board');
+  demo.element.querySelector('.place[data-toolbar="b"][data-room="board"]').click();
+  const card = a.element.closest('.card');
+  same(b.element.closest('.card'), card, 'both are in the first card');
+  equal(captionOf(a, 'ui:apply'), 'Tick “Write the docs”, then count what is done');
+  equal(captionOf(b, 'ui:apply'), captionOf(a, 'ui:apply'), 'and say the same, because they ask the same card');
+  a.element.querySelector('[data-intent="ui:apply"]').click();
+  equal(captionOf(b, 'ui:apply'), 'Untick “Write the docs”, then count what is done', "pressing A's Apply changed B's caption");
+  equal(captionOf(a, 'ui:remove'), 'Hand toolbar A and toolbar B back to the dock, then remove “Write the docs”', 'the card would hand both back');
+  b.element.querySelector('[data-intent="ui:remove"]').click();
+  equal(card.isConnected, false, 'the card went');
+  same(a.element.parentElement, demo.dock, 'A is home');
+  same(b.element.parentElement, demo.dock, 'and so is B');
+  assert(latest(demo).includes('3 operations'), `two moves and a remove: ${latest(demo)}`);
   demo.dispose();
 });

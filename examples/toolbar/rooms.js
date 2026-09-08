@@ -201,6 +201,9 @@ export function createListbox({ say }) {
     options.observe(syncTabs),
     on(list, 'click', '[role="option"]', (event, option) => select(option)),
     on(list, 'keydown', '[role="option"]', (event, option) => {
+      // The arrows with a modifier are somebody else's, the page's shortcuts
+      // among them.
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
       const to = event.key === 'ArrowDown' ? option.nextElementSibling
         : event.key === 'ArrowUp' ? option.previousElementSibling
         : event.key === 'Home' ? list.firstElementChild
@@ -316,18 +319,19 @@ export function createDialog({ say }) {
 // the card with `continue` and the board with `consume`, and the plan carries
 // both contributions in that order.
 //
-// A card holds a slot, so the toolbar can be in one, and a card that is removed
-// takes its contents with it. That is why `ui:remove` on a card first hands
-// whatever is in its slot back to `options.home`: a plan is a sequence, and the
-// move comes before the remove, so the toolbar's button keeps its focus in the
-// dock while the card it was in goes. The board's `consume` that follows adds
-// the remove and stops the collection; it does not take the card's move back.
+// A card holds a slot, so a toolbar can be in one, or two of them, and a card
+// that is removed takes its contents with it. That is why `ui:remove` on a
+// card first hands whatever is in its slot back to `options.home`: a plan is a
+// sequence, and the moves come before the remove, so a toolbar's button keeps
+// its focus in the dock while the card it was in goes. The board's `consume`
+// that follows adds the remove and stops the collection; it does not take the
+// card's moves back.
 //
 // A card can also be locked. The lock is a scope on the card's slot, so it is
 // nearer than the card to anything raised from inside the slot: it consumes
 // `ui:remove` with a refusal and the card and the board are never asked. The ×
 // beside the title is not under the slot, so the lock does not answer it.
-export function createBoard({ say, tally, home }) {
+export function createBoard({ say, tally, home, toolbars = [{ key: 'a', name: 'A' }] }) {
   const { act, refuse } = plans(say);
   const host = section('board', 'Board');
   const list = element('ul', 'cards');
@@ -352,21 +356,25 @@ export function createBoard({ say, tally, home }) {
       remove.dataset.intent = 'ui:remove';
       remove.setAttribute('aria-label', `Remove ${spec.title}`);
       head.append(title, remove);
-      // Two controls of the card's own. "Toolbar here" raises the same intent
-      // the place strip raises, with the same argument; that it means this
-      // card is decided by where it is. The lock is a checkbox and not an
-      // intent, because locking is the card's own state.
+      // The card's own controls. "A here" raises the same intent the place
+      // strip raises, with the same arguments; that it means this card is
+      // decided by where it is. The lock is a checkbox and not an intent,
+      // because locking is the card's own state.
       const tools = element('div', 'card-tools');
-      const dock = element('button', 'card-dock', 'Toolbar here');
-      dock.type = 'button';
-      dock.dataset.intent = 'toolbar:go';
-      dock.dataset.room = 'board';
-      dock.setAttribute('aria-label', `Put the toolbar in ${spec.title}`);
+      for (const toolbar of toolbars) {
+        const dock = element('button', 'card-dock', `${toolbar.name} here`);
+        dock.type = 'button';
+        dock.dataset.intent = 'toolbar:go';
+        dock.dataset.room = 'board';
+        dock.dataset.toolbar = toolbar.key;
+        dock.setAttribute('aria-label', `Put toolbar ${toolbar.name} in ${spec.title}`);
+        tools.append(dock);
+      }
       const lock = element('label', 'card-lock');
       const box = element('input');
       box.type = 'checkbox';
       lock.append(box, ' Lock');
-      tools.append(dock, lock);
+      tools.append(lock);
       card.append(head, tools);
       const slot = slotIn(card, `the slot of “${spec.title}”`);
       handles.set(card, room(card, `Card “${spec.title}”`, {
@@ -375,8 +383,19 @@ export function createBoard({ say, tally, home }) {
           return { disposition: 'continue', meaning: `${done ? 'Tick' : 'Untick'} “${spec.title}”`, operations: [op.update(card, { done })] };
         },
         'ui:remove': () => {
-          const held = slot.firstElementChild;
-          return held === null ? null : { disposition: 'continue', meaning: 'Hand the toolbar back to the dock', operations: [op.move(held, home, null)] };
+          // Everything held here goes home before the card leaves, each by
+          // its own move. The card does not know what it holds or how many:
+          // the rule is over the slot's children, and the words come from
+          // their labels and home's.
+          const held = Array.from(slot.children);
+          if (held.length === 0) return null;
+          const names = held.map(each => each.dataset.label ?? 'what is here');
+          const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+          return {
+            disposition: 'continue',
+            meaning: `Hand ${listed} back to ${home.dataset.label ?? 'home'}`,
+            operations: held.map(each => op.move(each, home, null)),
+          };
         },
       }));
       return card;
@@ -428,9 +447,9 @@ export function createBoard({ say, tally, home }) {
       return act(`Move “${titleOf(found.node)}” down`, [op.move(found.node, list, next.nextElementSibling)], [say(`Moved “${titleOf(found.node)}” down. Same card, same focus.`)]);
     },
     // The card toggles itself; the board counts afterwards. Effects run after
-    // the plan's operations, so the tally sees the toggle. The board has no
-    // meaning to add: the card has said what happens.
-    'ui:apply': () => ({ disposition: 'consume', effects: [tally()] }),
+    // the plan's operations, so the tally sees the toggle. Both say their
+    // part, and the caption reads them as one sentence.
+    'ui:apply': () => ({ disposition: 'consume', meaning: 'Count what is done', effects: [tally()] }),
     'ui:remove': raised => {
       const found = cardOf(raised);
       if (found === null) return refuse('This control is in no card.');

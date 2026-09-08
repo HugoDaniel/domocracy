@@ -19,24 +19,31 @@
 <main>
   <h1>One toolbar, four rooms</h1>
 
-  <p>The toolbar below has six buttons and not one handler that knows what they
-  do. A button raises an intent, and the room the toolbar is in answers it:
-  Apply commits a form, confirms a dialog, or ticks a card. Move the toolbar and
-  the same buttons mean something else. Nothing in the toolbar changes, and the
-  button you were on keeps its focus. Under each button is what it would do
-  here, in the room's own words, or why the room refuses.</p>
+  <p>The two toolbars below have six buttons each and not one handler that
+  knows what they do. A button raises an intent, and the room the toolbar is in
+  answers it: Apply commits a form, confirms a dialog, or ticks a card. Move a
+  toolbar and the same buttons mean something else. Nothing in the toolbar
+  changes, and the button you were on keeps its focus. Under each button is
+  what it would do here, in the room's own words, or why the room refuses.</p>
+
+  <p>A toolbar is one way to raise an intent and not the only one. A card's ×
+  raises Remove. The shortcuts below raise from whatever has focus: Alt+A in a
+  form field is the form's Apply, and Alt+A on a card's checkbox is the card's.
+  The rooms do not know who asked, and the same words come back either way.</p>
 
   <h2>Who owns what</h2>
   <ul>
-    <li><strong>The toolbar</strong> owns being a toolbar: one tab stop, arrow
-    keys between the buttons. Each button carries the intent it raises in
-    <code>data-intent</code> and nothing else.</li>
+    <li><strong>A toolbar</strong> owns being a toolbar: one tab stop, arrow
+    keys between the buttons, and a caption under each. Each button carries the
+    intent it raises in <code>data-intent</code> and nothing else. The two
+    toolbars know nothing of each other.</li>
     <li><strong>Each room</strong> owns a scope: one interpreter per intent
     type, which reads the room and returns a plan. The rooms know nothing about
     the toolbar or about each other. A card on the board is a room inside a
     room.</li>
     <li><strong>The page</strong> owns the dock, the travel between rooms, the
-    status line and the two panels, and it runs the effects. The rehearsal panel
+    shortcuts, the status line and the two panels, and it runs the effects. A
+    travel request names its toolbar, or comes from inside one. The rehearsal panel
     calls <code>interpret</code>, which is the half of <code>intent</code> that
     writes nothing, and shows the answer in place: the route outlined on the
     rooms, and the nodes the plan names marked with what would happen to them.</li>
@@ -55,7 +62,11 @@
   once and explains alongside the operations; the trace keeps the plan as
   returned; and a control reads its caption and its availability from there.
   There is no second set of rules for what is enabled. A refused button is
-  dimmed and still raises when pressed, and what runs is the refusal.</p>
+  dimmed and still raises when pressed, and what runs is the refusal. A
+  refusal is a <code>consume</code>, and a consume cannot take back what a
+  nearer room already added: when a room refuses after another contributed,
+  the caption says both, and the button stays available because pressing it
+  still does the nearer room's part.</p>
 
   <h2>What to try</h2>
   <ol class="checklist">
@@ -83,6 +94,14 @@
     <li>Press the × on any card. It is a control like any other, and the same
     two scopes answer it. The lock does not, because the × is beside the slot
     and not inside it.</li>
+    <li>Put toolbar B in the Listbox and toolbar A in the Form. Read the two
+    sets of captions. Then put both in the same card and press Apply on one:
+    the other's caption changes too, because both ask the same card.</li>
+    <li>Click into the Name field and press <kbd>Alt+A</kbd>, then select an
+    option and press <kbd>Alt+R</kbd>, then focus a card's Lock and press
+    <kbd>Alt+↓</kbd>. Each is the same intent a toolbar button raises, from
+    where the focus is, and the panel lists what every shortcut would do from
+    there.</li>
   </ol>
 
   <div id="demo"></div>
@@ -106,6 +125,11 @@
   and on the nodes a plan names, and clears before the next rehearsal. It is
   presentation: no interpreter reads them, and a region owns the order and the
   lifetime of its children and not their attributes.</p>
+  <p>The shortcuts use Alt, which is Option on a Mac, with the physical key,
+  so a letter is read before the system turns it into another character. A
+  browser or a system that claims one of the combinations keeps it, and the
+  page does not see the press. Alt+N from a control that is in no toolbar is
+  refused, because Next room moves the toolbar the request came from.</p>
   <p>The dialog is a confirmation panel, not a modal. Nothing traps focus.</p>
 
   <p><a href="../README.md">Back to the examples index</a></p>

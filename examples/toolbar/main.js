@@ -4,10 +4,15 @@
 //
 // The route an action takes:
 //
-//   a button in the toolbar raises an intent
+//   a control raises an intent: a toolbar button, a card's ×, or a shortcut
 //     the rooms above it answer, nearest first, each with a plan
 //     the plans run as one sequence, then the effects
-//     the toolbar reports what happened and the log shows it
+//     the raiser reports what happened and the log shows it
+//
+// Who raises does not matter to the rooms. Two toolbars raise the same intents
+// and each is answered by the rooms around it, and a shortcut raises from
+// whatever has focus, so Alt+A in a form field is the form's Apply and Alt+A
+// on a card's checkbox is the card's. The same words come back either way.
 //
 // The rehearsal panel takes the first two steps and stops: it calls `interpret`,
 // which is the half of `intent` that writes nothing, and shows the answer room
@@ -17,7 +22,7 @@ import { on, op, region } from 'domocracy';
 import { effect } from 'domocracy/intent';
 import { createToolbar } from './toolbar.js';
 import { SLOT, createBoard, createDialog, createForm, createListbox } from './rooms.js';
-import { describe, explain, nameOf, raise, rehearse, room } from './scopes.js';
+import { caption, describe, explain, nameOf, raise, rehearse, room } from './scopes.js';
 
 // Effect names are this demo's: an adapter is registered once for the whole
 // page, and a name like "say" would be a claim on everybody's.
@@ -25,6 +30,20 @@ const SAY = 'toolbar-demo.say';
 const TALLY = 'toolbar-demo.tally';
 
 const KEEP = 8;   // log rows
+
+const TOOLBARS = [{ key: 'a', name: 'A' }, { key: 'b', name: 'B' }];
+
+// The shortcuts, by physical key with Alt held, so that Option on a Mac does
+// not turn the letter into another character before the page sees it. Each
+// raises from whatever has focus.
+export const SHORTCUTS = Object.freeze([
+  { code: 'KeyA', keys: 'Alt+A', type: 'ui:apply', label: 'Apply' },
+  { code: 'KeyC', keys: 'Alt+C', type: 'ui:cancel', label: 'Cancel' },
+  { code: 'ArrowUp', keys: 'Alt+↑', type: 'ui:up', label: 'Up' },
+  { code: 'ArrowDown', keys: 'Alt+↓', type: 'ui:down', label: 'Down' },
+  { code: 'KeyR', keys: 'Alt+R', type: 'ui:remove', label: 'Remove' },
+  { code: 'KeyN', keys: 'Alt+N', type: 'toolbar:next', label: 'Next room' },
+]);
 
 const MEANING = {
   dock: 'Nothing answers here.',
@@ -89,36 +108,48 @@ export function mountToolbarDemo(root, options = {}) {
   const demo = element('div', 'toolbar-demo');
   demo.dataset.instance = instance;
 
-  // The dock is the toolbar's home: a slot with no room around it. The region
-  // adopts the toolbar as the child it already has.
+  // The dock is the toolbars' home: a slot with no room around it. The region
+  // adopts the toolbars as the children it already has.
   const dockHost = element('div', 'dock');
   dockHost.dataset.label = 'the dock';
-  const toolbar = createToolbar();
-  dockHost.append(toolbar.element);
+  const toolbars = {};
+  for (const each of TOOLBARS) {
+    toolbars[each.key] = createToolbar(each);
+    dockHost.append(toolbars[each.key].element);
+  }
   region(dockHost, SLOT);
+  const every = Object.values(toolbars);
 
   const rooms = {
     form: createForm({ say }),
     listbox: createListbox({ say }),
     dialog: createDialog({ say }),
-    board: createBoard({ say, tally, home: dockHost }),
+    board: createBoard({ say, tally, home: dockHost, toolbars: TOOLBARS }),
   };
   const stops = [
     { key: 'dock', name: 'Dock', element: dockHost, slotFor: () => dockHost },
     ...Object.entries(rooms).map(([key, each]) => ({ key, name: each.name, element: each.element, slotFor: source => each.slotFor(source) })),
   ];
 
-  const places = element('div', 'places');
-  places.setAttribute('role', 'group');
-  places.setAttribute('aria-label', 'Where the toolbar is');
-  places.append(element('span', 'places-label', 'Toolbar in:'));
-  for (const stop of stops) {
-    const button = element('button', 'place', stop.name);
-    button.type = 'button';
-    button.dataset.intent = 'toolbar:go';
-    button.dataset.room = stop.key;
-    button.setAttribute('aria-pressed', 'false');
-    places.append(button);
+  // One row of places per toolbar. The buttons carry the room and the toolbar
+  // as data, which is what the rehearsal reads too.
+  const placesHost = element('div', 'places-rows');
+  for (const each of TOOLBARS) {
+    const row = element('div', 'places');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', `Where toolbar ${each.name} is`);
+    row.dataset.toolbar = each.key;
+    row.append(element('span', 'places-label', `${each.name} in:`));
+    for (const stop of stops) {
+      const button = element('button', 'place', stop.name);
+      button.type = 'button';
+      button.dataset.intent = 'toolbar:go';
+      button.dataset.room = stop.key;
+      button.dataset.toolbar = each.key;
+      button.setAttribute('aria-pressed', 'false');
+      row.append(button);
+    }
+    placesHost.append(row);
   }
 
   const grid = element('div', 'rooms');
@@ -139,14 +170,17 @@ export function mountToolbarDemo(root, options = {}) {
     key.dataset.kind = kind;
     legend.append(key);
   }
-  rehearsalPanel.append(element('h3', null, 'What this control would do'), head, answersHost, check, legend);
+  // What the shortcuts would do from wherever the focus is.
+  const shortcutsHead = element('p', 'shortcuts-head');
+  const shortcutsHost = element('ul', 'shortcuts');
+  rehearsalPanel.append(element('h3', null, 'What this control would do'), head, answersHost, check, legend, shortcutsHead, shortcutsHost);
   const logPanel = element('section', 'panel log');
   logPanel.setAttribute('aria-label', 'What happened');
   const resultsHost = element('ol', 'results');
   logPanel.append(element('h3', null, 'What happened'), resultsHost);
   panels.append(rehearsalPanel, logPanel);
 
-  demo.append(dockHost, places, grid, statusHost, panels);
+  demo.append(dockHost, placesHost, grid, statusHost, panels);
   root.append(demo);
 
   // ----------------------------------------------------------------- regions
@@ -154,7 +188,7 @@ export function mountToolbarDemo(root, options = {}) {
     create: text => element('span', null, text),
     update: (node, text) => { node.textContent = text; },
   });
-  status.insert(['The toolbar is in the dock, where nothing answers it. Move it into a room.']);
+  status.insert(['Both toolbars are in the dock, where nothing answers them. Move one into a room.']);
 
   const answers = region(answersHost, {
     create(answer) {
@@ -174,6 +208,15 @@ export function mountToolbarDemo(root, options = {}) {
     },
   });
 
+  const shortcuts = region(shortcutsHost, {
+    create(entry) {
+      const row = element('li', 'shortcut');
+      row.dataset.state = entry.said.state;
+      row.append(element('kbd', null, entry.keys), element('span', 'shortcut-for', entry.label), element('span', 'shortcut-text', entry.said.text));
+      return row;
+    },
+  });
+
   const results = region(resultsHost, {
     create(entry) {
       const row = element('li', 'result', entry.text);
@@ -184,11 +227,19 @@ export function mountToolbarDemo(root, options = {}) {
 
   // --------------------------------------------------------------- rehearsal
   // Which intent a control raises, read from the control itself. The place
-  // buttons carry their argument in data-room.
-  const intentOf = control => control.dataset.intent === undefined ? null
-    : { type: control.dataset.intent, args: control.dataset.room === undefined ? undefined : { room: control.dataset.room } };
+  // buttons and a card's own buttons carry their arguments in data-room and
+  // data-toolbar.
+  const intentOf = control => {
+    if (control.dataset.intent === undefined) return null;
+    const args = {};
+    if (control.dataset.room !== undefined) args.room = control.dataset.room;
+    if (control.dataset.toolbar !== undefined && !control.classList.contains('tb-button')) args.toolbar = control.dataset.toolbar;
+    return { type: control.dataset.intent, args: Object.keys(args).length === 0 ? undefined : args };
+  };
 
-  const labelOf = control => control.getAttribute('aria-label') ?? control.textContent.trim();
+  // A control's name for the panel: its aria-label, the label of a form
+  // control, or its text.
+  const labelOf = control => control.getAttribute('aria-label') ?? control.labels?.[0]?.textContent.trim() ?? control.textContent.trim();
 
   // The highlight in place: `data-route` on each scope of the route with what
   // it did, and `data-affected` on each node a plan names with what would
@@ -266,6 +317,25 @@ export function mountToolbarDemo(root, options = {}) {
     show(control);
   };
 
+  // The shortcuts raise from whatever has focus, so what they would do is
+  // asked from there, with the same `explain` a toolbar button uses. A
+  // different raiser, the same rooms, the same words.
+  let focused = null;
+  const showShortcuts = () => {
+    if (focused === null || !focused.isConnected || !demo.contains(focused)) {
+      focused = null;
+      shortcutsHead.textContent = 'Focus anything in the demo to see what the shortcuts would do from there.';
+      shortcuts.clear();
+      return;
+    }
+    const where = focused.closest('.toolbar') !== null ? focused.closest('.toolbar').dataset.label
+      : focused.closest('.card') !== null ? `card “${focused.closest('.card').dataset.label}”`
+        : focused.closest('.room') !== null ? `the ${nameOf(focused.closest('.room'))}` : 'the page';
+    shortcutsHead.textContent = `From “${labelOf(focused)}” in ${where}, the shortcuts would:`;
+    const rows = SHORTCUTS.map(each => ({ keys: each.keys, label: each.label, said: caption(explain(focused, each.type)) }));
+    shortcuts.execute([op.clear(shortcutsHost), op.insert(shortcutsHost, null, rows)]);
+  };
+
   // --------------------------------------------------------------------- log
   // The log counts what was raised here. The library numbers every
   // interpretation, and the captions and the panel interpret constantly, so
@@ -287,70 +357,94 @@ export function mountToolbarDemo(root, options = {}) {
   };
 
   // ------------------------------------------------------------------ travel
-  const stopOf = () => stops.find(stop => stop.element.contains(toolbar.element)) ?? null;
+  // Which toolbar a request is about: the one its args name, else the one it
+  // was raised from inside. A shortcut pressed in a form field names none.
+  const toolbarOf = (args, source) => {
+    if (typeof args?.toolbar === 'string') return toolbars[args.toolbar] ?? null;
+    const inside = source.closest('.toolbar');
+    return inside === null ? null : toolbars[inside.dataset.toolbar] ?? null;
+  };
+  const stopOf = which => stops.find(stop => stop.element.contains(which.element)) ?? null;
 
-  // Where the toolbar goes for a request raised from `source`: the room's one
-  // slot, or on the board the slot of the card the request came from. The
-  // page's plans follow the rooms' conventions: a meaning, or a refusal.
+  // Where a toolbar goes for a request raised from `source`: the room's one
+  // slot, or on the board the slot of the card the request came from. A slot
+  // holds any number of toolbars, so two can share a room. The page's plans
+  // follow the rooms' conventions: a meaning, or a refusal.
   const refuse = text => ({ disposition: 'consume', refused: text, effects: [say(text)] });
-  const travel = (stop, source) => {
+  const travel = (stop, source, which) => {
+    if (which === null) return refuse('Say which toolbar: this control is in none.');
     if (stop === null) return refuse('There is no such room.');
     const slot = stop.slotFor(source);
-    if (slot === null) return refuse(`The ${stop.name} has no card to hold the toolbar. Add one first.`);
-    if (toolbar.element.parentElement === slot) return refuse(`The toolbar is already in the ${stop.name}.`);
+    if (slot === null) return refuse(`The ${stop.name} has no card to hold a toolbar. Add one first.`);
+    if (which.element.parentElement === slot) return refuse(`Toolbar ${which.name} is already in the ${stop.name}.`);
     const where = stop.key === 'board' && source !== null && stop.element.contains(source) ? `“${slot.parentElement.dataset.label}”` : `the ${stop.name}`;
     return {
       disposition: 'consume',
-      meaning: `Put the toolbar in ${where}`,
-      operations: [op.move(toolbar.element, slot, null)],
-      effects: [say(`The toolbar is in the ${stop.name}. ${MEANING[stop.key]}`)],
+      meaning: `Put toolbar ${which.name} in ${where}`,
+      operations: [op.move(which.element, slot, null)],
+      effects: [say(`Toolbar ${which.name} is in the ${stop.name}. ${MEANING[stop.key]}`)],
     };
   };
 
   // The page is the outermost room. The rooms have no interpreter for travel,
-  // so an intent from the Next room button walks up through them to here.
+  // so an intent from a Next room button walks up through them to here.
   const page = room(demo, 'Page', {
-    'toolbar:next': () => {
-      const here = stops.indexOf(stopOf());
+    'toolbar:next': raised => {
+      const which = toolbarOf(raised.args, raised.source);
+      if (which === null) return refuse('Next room moves the toolbar the request came from, and this control is in none.');
+      const here = stops.indexOf(stopOf(which));
       for (let k = 1; k <= stops.length; k++) {
         const stop = stops[(here + k) % stops.length];
-        if (stop.slotFor(null) !== null) return travel(stop, null);
+        if (stop.slotFor(null) !== null) return travel(stop, null, which);
       }
       return refuse('Nowhere to go.');
     },
     // The same argument from the place strip and from a card's own button; the
     // source says which card, when it is in one.
-    'toolbar:go': raised => travel(stops.find(stop => stop.key === raised.args?.room) ?? null, raised.source),
+    'toolbar:go': raised => travel(stops.find(stop => stop.key === raised.args?.room) ?? null, raised.source, toolbarOf(raised.args, raised.source)),
   });
 
-  // Every raising control outside the toolbar asks what it would do here, and
+  // Every raising control outside the toolbars asks what it would do here, and
   // shows it the plain way: aria-disabled when refused, and the words in its
-  // title. The toolbar does the same for its own buttons, with captions. A
+  // title. The toolbars do the same for their own buttons, with captions. A
   // refused control still raises when pressed; the refusal is what runs.
   const annotate = () => {
     for (const control of demo.querySelectorAll('[data-intent]')) {
-      if (toolbar.element.contains(control)) continue;
+      if (control.closest('.toolbar') !== null) continue;
       const asked = intentOf(control);
-      const told = explain(control, asked.type, asked.args);
-      control.setAttribute('aria-disabled', String(told.refused !== null));
-      const words = told.refused ?? told.meaning;
-      if (words === null) control.removeAttribute('title'); else control.title = words;
+      const said = caption(explain(control, asked.type, asked.args));
+      control.setAttribute('aria-disabled', String(!said.available));
+      if (said.state === 'silent' || said.state === 'quiet') control.removeAttribute('title'); else control.title = said.text;
     }
   };
 
-  // The tree changed, so what a control would do may have too.
+  // The tree changed, so what a control would do may have too. This runs
+  // after an intent has finished, effects included, and after any input,
+  // change or click the page saw, so every caption says what the next press
+  // would do. Interpreting does not raise events, so a refresh never causes
+  // another; the guard below is what makes that a promise and not a hope.
+  let refreshes = 0, refreshing = false;
   const refresh = () => {
-    toolbar.refresh();
-    annotate();
-    stale = true;
-    if (previewed !== null && previewed.isConnected) preview(previewed);
-    else { previewed = null; showNothing(); }
+    if (refreshing) throw new Error('toolbar-demo: a refresh asked for another refresh');
+    refreshing = true;
+    try {
+      refreshes++;
+      for (const each of every) each.refresh();
+      annotate();
+      stale = true;
+      if (previewed !== null && previewed.isConnected) preview(previewed);
+      else { previewed = null; showNothing(); }
+      showShortcuts();
+    } finally {
+      refreshing = false;
+    }
   };
 
   const sync = () => {
-    const here = stopOf();
-    for (const button of places.querySelectorAll('.place')) button.setAttribute('aria-pressed', String(button.dataset.room === here?.key));
-    demo.dataset.where = here?.key ?? '';
+    for (const each of every) {
+      const here = stopOf(each);
+      for (const button of placesHost.querySelectorAll(`.place[data-toolbar="${each.key}"]`)) button.setAttribute('aria-pressed', String(button.dataset.room === here?.key));
+    }
     refresh();
   };
 
@@ -370,6 +464,21 @@ export function mountToolbarDemo(root, options = {}) {
   const offs = [
     on(demo, 'pointerover', '[data-intent]', (event, control) => preview(control)),
     on(demo, 'focusin', '[data-intent]', (event, control) => preview(control)),
+    on(demo, 'focusin', '*', (event, target) => { focused = target; showShortcuts(); }),
+    on(demo, 'focusout', '*', event => {
+      if (event.relatedTarget instanceof Element && demo.contains(event.relatedTarget)) return;
+      focused = null;
+      showShortcuts();
+    }),
+    // A shortcut raises from the element that has focus, and the report comes
+    // from the demo, because the plan may take that element away.
+    on(demo, 'keydown', '*', (event, target) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      const shortcut = SHORTCUTS.find(each => each.code === event.code);
+      if (shortcut === undefined) return;
+      event.preventDefault();
+      raise(target, shortcut.type, undefined, demo);
+    }),
     on(demo, 'click', '[data-intent="toolbar:go"]', (event, button) => raise(button, 'toolbar:go', intentOf(button).args)),
     on(demo, 'intent:raised', '*', event => { report(event.detail); sync(); }),
     // A rehearsal is an answer about the tree as it was asked. Typing in a
@@ -390,20 +499,23 @@ export function mountToolbarDemo(root, options = {}) {
   return {
     element: demo,
     instance,
-    toolbar,
+    toolbar: toolbars.a,
+    toolbars,
     rooms,
     stops,
     dock: dockHost,
     status: statusHost,
     rehearsal: answersHost,
+    shortcuts: shortcutsHost,
     results: resultsHost,
+    get refreshes() { return refreshes; },
     dispose() {
       if (disposed) return;
       disposed = true;
       for (const off of offs) off();
       page.dispose();
       for (const each of Object.values(rooms)) each.dispose();
-      toolbar.dispose();
+      for (const each of every) each.dispose();
       if (mounted.get(instance) === api) mounted.delete(instance);
       if (mounted.size === 0 && release !== null) release();
       demo.remove();

@@ -1,6 +1,6 @@
 // A toolbar whose buttons mean nothing on their own.
 //
-//   createToolbar()   { element, buttons, refresh, dispose }
+//   createToolbar({ key, name })   { element, key, name, buttons, refresh, dispose }
 //
 // Every button carries the intent it raises in data-intent and nothing else: no
 // handler, no callback, no idea what "apply" or "up" does. Activating one raises
@@ -15,14 +15,21 @@
 // one that arrives later is reached by the same keys without anything being
 // registered for it.
 //
+// Two toolbars on one page are two of these, and neither knows of the other:
+// each raises from its own buttons and is answered by the rooms around it, and
+// each shows its own captions. The key and the name are how the page tells
+// them apart, in data-toolbar and in the label.
+//
 // It also owns saying what its buttons would do. `refresh()` asks each button,
 // through `explain`, what the rooms around it would answer, and writes the
-// answer under the button: the meaning, or why it is refused. A refused button
-// is marked aria-disabled and still raises when pressed, because the refusal
-// is the plan and the plan is what runs. Nothing here decides availability;
-// the interpreter did, once, and this only shows it.
+// answer under the button: the meaning, or why it is refused, or both when a
+// room refused after a nearer one had already contributed. A button is marked
+// aria-disabled only when the whole action would do nothing but refuse, and it
+// still raises when pressed, because the refusal is the plan and the plan is
+// what runs. Nothing here decides availability; the interpreters did, once,
+// and this only shows it.
 import { on } from 'domocracy';
-import { explain, raise } from './scopes.js';
+import { caption, explain, raise } from './scopes.js';
 
 export const CONTROLS = Object.freeze([
   { intent: 'ui:apply', label: 'Apply' },
@@ -37,16 +44,22 @@ const KEYS = { ArrowRight: 1, ArrowLeft: -1, Home: 0, End: 0 };
 
 let instances = 0;
 
-export function createToolbar() {
+export function createToolbar({ key = 'a', name = 'A' } = {}) {
   const prefix = `tb-${++instances}`;
   const element = document.createElement('div');
   element.className = 'toolbar';
-  element.dataset.label = 'the toolbar';
+  element.dataset.toolbar = key;
+  element.dataset.label = `toolbar ${name}`;
 
   const bar = document.createElement('div');
   bar.className = 'tb-buttons';
   bar.setAttribute('role', 'toolbar');
-  bar.setAttribute('aria-label', 'Toolbar');
+  bar.setAttribute('aria-label', `Toolbar ${name}`);
+  const tag = document.createElement('span');
+  tag.className = 'tb-tag';
+  tag.setAttribute('aria-hidden', 'true');
+  tag.textContent = name;
+  bar.append(tag);
 
   // One caption per button, and the button is described by it.
   const captions = document.createElement('ul');
@@ -98,6 +111,8 @@ export function createToolbar() {
 
   return {
     element,
+    key,
+    name,
     get buttons() { return buttons(); },
 
     // Each button asks what it would do here and shows it. Called by whoever
@@ -105,13 +120,12 @@ export function createToolbar() {
     refresh() {
       if (!element.isConnected) return;
       for (const button of buttons()) {
-        const caption = captionOf.get(button);
-        if (caption === undefined) continue;
-        const told = explain(button, button.dataset.intent);
-        const state = told.refused !== null ? 'refused' : told.meaning !== null ? 'meaning' : told.answered ? 'quiet' : 'silent';
-        caption.dataset.state = state;
-        caption.lastElementChild.textContent = told.refused ?? told.meaning ?? (told.answered ? 'nothing to say' : 'no room answers here');
-        button.setAttribute('aria-disabled', String(told.refused !== null));
+        const line = captionOf.get(button);
+        if (line === undefined) continue;
+        const said = caption(explain(button, button.dataset.intent));
+        line.dataset.state = said.state;
+        line.lastElementChild.textContent = said.text;
+        button.setAttribute('aria-disabled', String(!said.available));
       }
     },
 

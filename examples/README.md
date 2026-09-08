@@ -67,11 +67,13 @@ canvas region and the controls. Nothing is drawn from inside an interpreter.
 
 ### `toolbar/`: one toolbar, four rooms
 
-A toolbar with six buttons and no handler that knows what any of them does.
-Each button raises the intent in its `data-intent`, and the scope of the room
-the toolbar is in answers: Apply commits a form, confirms a dialog, or ticks a
-card. Moving the toolbar to another room changes what the same buttons mean,
-and the button that asked for the move keeps its focus through it.
+Two toolbars with six buttons each and no handler that knows what any of them
+does. Each button raises the intent in its `data-intent`, and the scope of the
+room the toolbar is in answers: Apply commits a form, confirms a dialog, or
+ticks a card. Moving a toolbar to another room changes what the same buttons
+mean, and the button that asked for the move keeps its focus through it. A
+card's × and a set of Alt shortcuts raise the same intents from where they
+are, and the rooms answer them the same way, not knowing who asked.
 
 - `toolbar.js` is the component: the buttons, one tab stop and the arrow keys,
   and under each button a caption saying what it would do here, or why the
@@ -85,7 +87,8 @@ and the button that asked for the move keeps its focus through it.
   control gets its caption and its availability. The library reads neither
   word and keeps the plan they are on.
 - `main.js` is the page: the dock, the travel between rooms as intents the
-  page's own scope answers, the status effect, and the two panels.
+  page's own scope answers, the shortcuts raised from whatever has focus, the
+  status effect, and the two panels.
 
 Read it for a control that has no meaning of its own, for a plan read before it
 runs and shown in place on the rooms and the nodes it names, and for a sequence

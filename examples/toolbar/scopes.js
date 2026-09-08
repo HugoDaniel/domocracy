@@ -4,7 +4,8 @@
 //   room(element, name, handlers)     a scope with a name and one interpreter per type
 //   nameOf(element)                   the name a room had on the element, even after it is gone
 //   rehearse(source, type, args)      what each room would answer, without running any of it
-//   explain(source, type, args)       what a control would do in words, or why not
+//   explain(source, type, args)       what a control would do in words, and why not
+//   caption(told)                     one line and one availability from that
 //   raise(source, type, args, from)   intent, then a bubbling report of what happened
 //   labelOf(node), describe(op)       a node and an operation as lines of text
 //
@@ -76,23 +77,42 @@ export function rehearse(source, type, args) {
 //
 // The meanings of a route read as one sentence, nearest room first: a card that
 // hands the toolbar back and a board that removes the card say "Hand the
-// toolbar back to the dock, then remove “Ship it”".
+// toolbar back to the dock, then remove “Ship it”". Every room's words are
+// kept, because every room's contribution is: a refusal is a consume, and a
+// consume stops the collection without taking back what nearer rooms added.
+// So `refused` says which room refused and why, and `changes` says whether the
+// whole plan still does something, which a refusal alone cannot answer.
 export function explain(source, type, args) {
   let interpreted;
   try {
     interpreted = interpret(source, type, args);
   } catch (error) {
-    return freeze({ meaning: null, refused: error.message, answered: false });
+    return freeze({ meaning: null, refused: error.message, refusedBy: null, changes: false, answered: false });
   }
   const meanings = [];
-  let refused = null;
+  let refused = null, refusedBy = null, changes = interpreted.operations.length > 0;
   for (const entry of interpreted.trace) {
     const plan = entry.plan;
     if (plan === null) continue;
-    if (typeof plan.refused === 'string') refused = plan.refused;
+    if (typeof plan.refused === 'string') { refused = plan.refused; refusedBy = nameOf(entry.scope); }
+    else if (entry.effects.length > 0) changes = true;   // an effect that is not a refusal's own is work
     if (typeof plan.meaning === 'string') meanings.push(plan.meaning);
   }
-  return freeze({ meaning: meanings.length === 0 ? null : sentence(meanings), refused, answered: interpreted.trace.length > 0 });
+  return freeze({ meaning: meanings.length === 0 ? null : sentence(meanings), refused, refusedBy, changes, answered: interpreted.trace.length > 0 });
+}
+
+// One line for a control and whether it is available, from what `explain`
+// said. A control is unavailable only when the whole action would do nothing
+// but refuse. A refusal that comes after a nearer room contributed leaves that
+// contribution in the plan, so the line says both and the control stays
+// available: pressing it does what the line says.
+export function caption(told) {
+  if (told.refused !== null && !told.changes) return freeze({ text: told.refused, state: 'refused', available: false });
+  if (told.refused !== null) {
+    return freeze({ text: `${told.meaning ?? 'Something would still change'}, then ${told.refusedBy ?? 'a room'} refuses: ${told.refused}`, state: 'partly', available: true });
+  }
+  if (told.meaning !== null) return freeze({ text: told.meaning, state: 'meaning', available: true });
+  return freeze({ text: told.answered ? 'nothing to say' : 'no room answers here', state: told.answered ? 'quiet' : 'silent', available: true });
 }
 
 const sentence = meanings => meanings.map((meaning, i) => i === 0 ? meaning : meaning.replace(/^[A-Z]/, first => first.toLowerCase())).join(', then ');
