@@ -2,6 +2,136 @@
 
 **domocracy is a small library for changing DOM elements through explicit operations and giving controls behavior through their surroundings.**
 
+## Start here: one button, two rooms
+
+An Apply button means one thing over a form and another over a dialog. The usual ways to handle that are to hand the button a callback from the component above it, to read a `context` variable inside its click handler, or to keep a command registry with a `canExecute` next to every command. Each of them puts the knowledge of what Apply does into the button or beside it, and each keeps a second copy of that knowledge for the label and the disabled state, which then drifts from what the click does.
+
+Here the button knows nothing. It asks, and the part of the page it sits in answers. The twenty lines below build that, and every word is explained before it is used. To run them, serve the folder over HTTP with the import map from [Install and run](#install-and-run).
+
+### The page
+
+Two sections and one button. The button starts in the form. Later it moves into the dialog, and none of its code changes.
+
+```html
+<section id="form">
+  <input placeholder="Title">
+  <button id="apply">Apply</button>
+</section>
+<section id="dialog">Discard the draft?</section>
+<p id="status"></p>
+```
+
+`main.js` opens by picking those up:
+
+```js
+import { scope, intent, interpret, effect } from 'domocracy/intent';
+
+const form = document.querySelector('#form');
+const dialog = document.querySelector('#dialog');
+const apply = document.querySelector('#apply');
+const status = document.querySelector('#status');
+```
+
+### An intent is a request with a name
+
+Pressing a doorbell does not open the door. It asks, and whoever is inside decides. An **intent** is that kind of ask: a name, here `apply`, raised from an element. The element it is raised from is the **source**, and the source decides nothing about what happens next.
+
+The button's whole click handler raises one:
+
+```js
+apply.addEventListener('click', () => intent(apply, 'apply'));
+```
+
+Nothing answers yet, so pressing the button does nothing, and that is not an error. An intent nobody answers is a request that went unheard.
+
+### A scope is a room that answers
+
+A **scope** is an element that has agreed to answer for the intents raised from anything inside it. Think of it as a room: what "apply" means is decided by the room the button is standing in. The function that answers is an **interpreter**, and a scope holds one per intent name.
+
+When the button raises `apply`, the library walks up from the button's parent to the top of the document. That walk is the **route**, and along it the library asks each scope that has an interpreter for `apply`, nearest first, until one of them gives a final answer.
+
+```text
+<body>
+  <section id="form">      a scope: on the route, asked first
+    <input>
+    <button id="apply">    the source: the walk starts above it
+  <section id="dialog">    a scope, but not on this route
+```
+
+### The answer is a plan, and nothing in it has happened
+
+An interpreter does nothing. It returns a **plan**: a plain object describing what would happen, the way a recipe describes a meal. Two rules make a plan safe to hold. An interpreter reads the tree and writes nothing, and the library holds a guard while interpreters run, so any change made through it during that time throws. And nothing in a plan runs until the walk is over.
+
+Every plan carries a **disposition**, which says how far the walk continues. `consume` means "this is the answer, ask nobody else". `continue` means "add this and keep asking the rooms outside". `pass` means "nothing to say here", and returning nothing at all is a pass.
+
+The dialog's answer is the shortest plan there is:
+
+```js
+{ disposition: 'consume', meaning: 'Confirm and close' }
+```
+
+`meaning` is not a word the library knows. domocracy reads `disposition`, `operations` and `effects` on a plan and keeps the whole object exactly as the interpreter returned it, so anything else on it is yours. This page puts `meaning` on every plan: one sentence for people, saying what the room would do. The plan above says something and does nothing, because it proposes nothing. Words are not work.
+
+### An effect is work outside the DOM
+
+A plan can propose two kinds of work. **Operations** are DOM changes (insert, move, update, remove, clear), and this example needs none. **Effects** are everything else: saving, closing, announcing. An effect in a plan is a request by name, such as `{ type: 'save' }`, and the plan does not say how it is done. The function that does it is an **adapter**, registered once per type for the whole page, and it runs after the operations of an accepted plan.
+
+Now both rooms answer in full. The form reads its own input and refuses when there is no title:
+
+```js
+scope(form).handle('apply', (raised, place) => {
+  const title = place.querySelector('input').value.trim();
+  if (title === '') return { disposition: 'consume', refused: 'Give it a title first' };
+  return { disposition: 'consume', meaning: `Save “${title}”`, effects: [{ type: 'save', title }] };
+});
+scope(dialog).handle('apply', () =>
+  ({ disposition: 'consume', meaning: 'Confirm and close', effects: [{ type: 'close' }] }));
+
+effect('save', ({ title }) => { status.textContent = `Saved “${title}”`; });
+effect('close', () => { dialog.hidden = true; });
+```
+
+An interpreter receives the intent that was raised (its source, its name and its arguments) and the scope's own element, which is how the form finds its input without a reference held elsewhere. `refused` is another word of this page, not of the library: a plan that proposes nothing and says why. Because it proposes nothing, pressing Apply on an empty form runs nothing, and the reason stays readable in the plan.
+
+### Ask before doing
+
+`interpret` is the first half of `intent`: the same walk, the same answers, checked, and nothing run. It returns the route and the **trace**, which is the list of scopes that answered, nearest first, each with the plan it returned. A control can ask what it would do, so its label and its availability come from the same function that would run it and cannot drift from it.
+
+```js
+function caption() {
+  const plan = interpret(apply, 'apply').trace[0]?.plan;
+  apply.title = plan?.meaning ?? plan?.refused ?? 'Nothing to do here';
+}
+form.addEventListener('input', caption);
+caption();
+```
+
+Nothing re-renders by itself. A plan is good for the tree as it stands, so the page asks again after every keystroke. When the button is pressed, `intent` interprets afresh rather than reusing what `caption` saw.
+
+### Try it
+
+Type a title and hover the button: "Save “Hello”". Clear the input: "Give it a title first", and a press does nothing. Then move the button into the other room from the console:
+
+```js
+dialog.append(apply); caption();   // the title reads "Confirm and close"
+```
+
+The button's code did not change. Its room did. A second way of asking costs one line, because the route is the tree and not wiring:
+
+```js
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.metaKey) intent(document.activeElement, 'apply');
+});
+```
+
+Cmd+Enter in the form's input raises the same request from wherever focus is, and the form answers it the same way, not knowing who asked.
+
+### What this gives you, and what stays yours
+
+The button has no `onApply`, no `switch (context)` and no registry entry. Its meaning, its availability and its execution are one walk, so they agree. A refusal is a plan that proposes nothing, not an exception. Any other raiser gets the same answer for free.
+
+What stays yours: the words `meaning` and `refused`, and asking again when the tree changes. The walk is the light-DOM ancestry only, so a menu rendered elsewhere raises from its anchor, and a Web Component raises from its host. The rest of this README covers the regions that run operations, plans that more than one room contributes to, and a document with its own history behind the effects.
+
 You supply the rendering functions. A region inserts, moves, updates, or removes the elements they create. Delegated handlers work for existing and future children. Optional scopes interpret a control's request according to where it lives. An optional surface adapter connects these mechanisms to a document with its own state and history.
 
 Three ES modules, no runtime dependencies, and TypeScript declarations for every entry point.
@@ -27,6 +157,7 @@ Use the core for explicitly managed lists and movable controls. Add intentions w
 
 ## Contents
 
+- [Start here: one button, two rooms](#start-here-one-button-two-rooms)
 - [Install and run](#install-and-run)
 - [Tutorial: a board of movable cards](#tutorial-a-board-of-movable-cards)
 - [Operations, groups, and identity](#operations-groups-and-identity)
