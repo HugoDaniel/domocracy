@@ -1,12 +1,22 @@
 {
   "name": "domocracy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Children that change only through named operations, delegated handlers, and actions the ancestors decide the meaning of.",
   "license": "CC0-1.0",
   "type": "module",
   "author": "Hugo Daniel",
-  "repository": { "type": "git", "url": "git+https://github.com/HugoDaniel/domocracy.git" },
-  "keywords": ["dom", "ui", "no-dependencies", "no-build", "operations", "event-delegation"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HugoDaniel/domocracy.git"
+  },
+  "keywords": [
+    "dom",
+    "ui",
+    "no-dependencies",
+    "no-build",
+    "operations",
+    "event-delegation"
+  ],
   "files": [
     "domocracy.js",
     "domocracy.d.ts",
