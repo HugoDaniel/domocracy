@@ -668,6 +668,6 @@ Browser tests require an installed Chrome. Set the `CHROME` environment variable
 
 The focused guides provide additional detail: [operations](docs/operations.md), [intentions](docs/intents.md), [surfaces](docs/surface.md), and [sequence contracts](docs/sequences.md). Read the implementation alongside them when building a custom executor.
 
-The [two-example plan](docs/plans/01-examples.md) covers reusable navigation components with nested submenus and optional icons, and an interactive canvas with application-owned undo and replay. These examples are planned, not yet implemented.
+Two runnable [examples](examples/README.md) ship with the repository. [Navigation](examples/navigation/) builds two independent bars from recursive component factories, with nested submenus, optional icons, and delegated handlers registered once per bar. [Canvas history](examples/canvas-history/) drags three circles on a single canvas child and adds undo, redo and replay, which are the example's own code and not the library's. Serve the repository over HTTP and open either directory; no build step is involved. The [plan they were built from](docs/plans/01-examples.md) records what each page promises and what it does not.
 
 Licensed under [CC0](LICENSE).

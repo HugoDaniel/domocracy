@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>domocracy example: canvas editing, undo and replay</title>
+<link rel="stylesheet" href="./styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "domocracy": "../../domocracy.js",
+    "domocracy/intent": "../../intent.js",
+    "domocracy/surface": "../../surface.js"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+  <h1>Canvas editing, undo and replay</h1>
+
+  <p>Three circles live in a document this page owns. Dragging one changes
+  pixels; releasing it asks the document to commit one move. The canvas is a
+  single element inside a region, and every change to what is on screen is an
+  update of that one child, so the pixels follow the document rather than the
+  other way round.</p>
+
+  <h2>Who owns what</h2>
+  <ul>
+    <li><strong>domocracy</strong> routes an intent to the scope above the
+    control that raised it, runs the plan's effect afterwards, and updates the
+    canvas child when the page asks it to. It has no history and no undo.</li>
+    <li><strong>This example</strong> owns the scene values, the history entries,
+    the cursor, the revision counter and the replay loop. Undo is not an inverse
+    of an operation: it is a scene the document kept.</li>
+    <li><strong>The order</strong> is fixed: an intent proposes an effect, the
+    effect commits to the document, the document notifies, and the notification
+    updates the canvas and the controls. Nothing is drawn from inside an
+    interpreter.</li>
+  </ul>
+
+  <h2>What to try</h2>
+  <ol class="checklist">
+    <li>Drag a circle and watch the history list. Nothing is added while you
+    drag. Release and exactly one entry appears.</li>
+    <li>Start a drag and press <kbd>Escape</kbd>, or drag off the window. The
+    preview goes and the history stays as it was.</li>
+    <li>Move one circle, colour another, move a third, then Undo everything and
+    Redo everything. The scene comes back to the same numbers both ways.</li>
+    <li>Undo once, then make a new edit. The redo tail disappears, and Replay
+    plays only the edits that currently apply.</li>
+    <li>Press Replay, then Stop halfway. The committed scene comes back and the
+    history and its cursor are untouched.</li>
+    <li>Select a circle and use the nudge and colour buttons. Every edit here has
+    a keyboard path, and an inspector edit does not steal focus from the button
+    you are on.</li>
+    <li>Resize the window during all of this. The backing buffer is rebuilt and
+    the scene is redrawn; no history entry is written for it.</li>
+  </ol>
+
+  <div id="demo"></div>
+
+  <h2>Limits</h2>
+  <p>Replay is a presentation of committed edits at a fixed pace of 600ms per
+  entry, not a recording. It interpolates a move between its endpoints and
+  applies a colour change at its entry boundary, and it never claims to
+  reproduce the path your pointer took or the time it took you.</p>
+  <p>History entries hold whole scenes, before and after. That is cheap for
+  three circles and would not be for a real document, where an inverse per action
+  is the usual answer. The example takes the cheap road on purpose: an
+  inverse-operation engine is exactly the machinery it is trying not to imply
+  domocracy has.</p>
+  <p>Teardown releases the frame loop, the pointer handlers and the
+  subscriptions. It promises nothing about restoring arbitrary browser state
+  afterwards.</p>
+
+  <p><a href="../README.md">Back to the examples index</a></p>
+</main>
+
+<script type="module">
+  import { mountCanvasHistoryDemo } from './main.js';
+  mountCanvasHistoryDemo(document.getElementById('demo'));
+</script>
+</body>
+</html>

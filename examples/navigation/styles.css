@@ -1,0 +1,77 @@
+/* Enough style to see the structure. Nothing here is required by domocracy. */
+:root {
+  color-scheme: light dark;
+  --ink: #14181f;
+  --paper: #fdfdfc;
+  --line: #d7d9de;
+  --accent: #2f6fed;
+  --muted: #5b6270;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #e9ecf1; --paper: #14171c; --line: #333844; --accent: #7aa2ff; --muted: #9aa2b1; }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  padding: 2rem 1.25rem 4rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.55 system-ui, sans-serif;
+}
+main { max-width: 54rem; margin: 0 auto; }
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.1rem; margin-top: 2rem; }
+h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.5rem; }
+code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 0.25em; }
+.checklist li { margin-bottom: 0.35rem; }
+
+.nav-demo { margin: 1.5rem 0; }
+.nav-bars { display: flex; flex-wrap: wrap; gap: 1rem; }
+.nav-bar { flex: 1 1 18rem; border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem; background: color-mix(in srgb, var(--paper) 85%, var(--ink) 4%); }
+
+.nav-list { list-style: none; margin: 0; padding: 0; }
+.nav-list .nav-list { margin-left: 1rem; border-left: 2px solid var(--line); padding-left: 0.5rem; }
+.nav-entry { margin: 2px 0; }
+
+.nav-control {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nav-control:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.nav-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nav-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.nav-disclosure::after { content: '\203A'; margin-left: auto; transform: rotate(90deg); transition: transform 120ms; }
+.nav-disclosure[aria-expanded='true']::after { transform: rotate(-90deg); }
+
+.nav-icon-slot { display: inline-flex; width: 1.1em; height: 1.1em; flex: 0 0 1.1em; }
+.nav-icon { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+.nav-strip { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0 0.75rem; }
+.nav-strip button {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.nav-strip button:disabled { opacity: 0.45; cursor: default; }
+.nav-strip button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.nav-status { min-height: 1.5em; margin: 0; color: var(--muted); }

@@ -1,6 +1,6 @@
 # Two small domocracy examples
 
-Status: planned. Build two standalone, readable browser examples using the current package. This is an implementation plan, not a claim that the examples or their tests exist.
+Status: built. The two examples live in [`examples/navigation/`](../../examples/navigation/) and [`examples/canvas-history/`](../../examples/canvas-history/), with an index in [`examples/README.md`](../../examples/README.md). Their model tests are in `tests/pure/examples.test.mjs` and their browser tests in `tests/examples.test.js`, both inside the existing `npm test`. The rest of this page is the plan they were built from, kept as written.
 
 The first shows a reusable component creating other components. The second shows an interactive canvas whose editing history belongs to the application. Neither requires new domocracy primitives, a component framework, or the parked recording runtime.
 

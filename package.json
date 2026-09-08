@@ -24,7 +24,7 @@
   "scripts": {
     "test": "node --test tests/pure && node tests/run.mjs",
     "test:pure": "node --test tests/pure",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='tests/**' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 tests/pure",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='tests/**' --test-coverage-exclude='examples/**' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 tests/pure",
     "test:browser": "node tests/run.mjs"
   }
 }

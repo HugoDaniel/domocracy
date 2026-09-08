@@ -3,6 +3,15 @@
 <head>
 <meta charset="utf-8">
 <title>domocracy tests</title>
+<script type="importmap">
+{
+  "imports": {
+    "domocracy": "../domocracy.js",
+    "domocracy/intent": "../intent.js",
+    "domocracy/surface": "../surface.js"
+  }
+}
+</script>
 <style>body { font: 14px/1.4 system-ui, sans-serif; margin: 2rem; } .ok { color: #1a7f37; } .fail { color: #b3261e; } #sandbox { position: absolute; left: -9999px; }</style>
 </head>
 <body>
@@ -12,6 +21,7 @@
 <script type="module" src="./domocracy.test.js"></script>
 <script type="module" src="./intent.test.js"></script>
 <script type="module" src="./surface.test.js"></script>
+<script type="module" src="./examples.test.js"></script>
 <script type="module">import { run } from './harness.js'; run();</script>
 </body>
 </html>

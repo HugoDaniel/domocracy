@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>domocracy example: a navigation that makes navigations</title>
+<link rel="stylesheet" href="./styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "domocracy": "../../domocracy.js",
+    "domocracy/intent": "../../intent.js",
+    "domocracy/surface": "../../surface.js"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+  <h1>A navigation component that makes components</h1>
+
+  <p>Two navigation bars are built from one spec. Each list is a region, and the
+  adapter of a list creates entries, which create the lists under them. The
+  recursion is components creating components: domocracy sees one container at a
+  time and never learns that a menu is involved.</p>
+
+  <h2>Who owns what</h2>
+  <ul>
+    <li><strong>The region</strong> owns which entry hosts a list holds and in
+    which order. Everything that changes them is an insert, a move, an update or
+    a remove.</li>
+    <li><strong>The entry component</strong> owns its link or button, the text
+    node holding its label, its icon slot and whether its submenu is open. Those
+    are private, so an update renames an entry without replacing the control the
+    reader is focused on.</li>
+    <li><strong>The page</strong> owns what a command means. An entry dispatches
+    <code>nav:select</code> from the nav element and this page decides what to do
+    with it, which is why the same component works in a page with other commands.</li>
+  </ul>
+
+  <h2>What to try</h2>
+  <ol class="checklist">
+    <li>Open <em>Products</em>, then <em>Tools</em>, then activate <em>Export</em>.
+    The status line below says which navigation asked for it.</li>
+    <li>Click directly on an icon. It behaves as a click on the label, because
+    the delegated rule matches the nearest button above the target.</li>
+    <li>Press <kbd>Tab</kbd> through the bar. A hidden submenu takes no focus.
+    Press <kbd>Escape</kbd> inside an open submenu: it closes and focus returns
+    to the button that opens it.</li>
+    <li>Use the demonstration strip to add an entry to the open <em>Tools</em>
+    submenu, rename it, toggle its icon, move it up and remove it. The new entry
+    needs no new listener: the rules registered on the nav element already cover
+    it.</li>
+    <li>Watch Navigation B while you do all of that. Two instances of one spec
+    share no state and no DOM ids.</li>
+  </ol>
+
+  <div id="demo"></div>
+
+  <h2>Limits</h2>
+  <p>This is a disclosure navigation, not a desktop menu bar. Enter and Space
+  activate the disclosure buttons because they are buttons, Tab follows the
+  native order, Escape closes the nearest open submenu, and a link stays a link.
+  There is no arrow-key menu system, no roving tabindex and no application menu
+  role. Changing an entry's kind after creation is not supported: remove it and
+  add the kind you want.</p>
+
+  <p><a href="../README.md">Back to the examples index</a></p>
+</main>
+
+<script type="module">
+  import { mountNavigationDemo } from './main.js';
+  mountNavigationDemo(document.getElementById('demo'));
+</script>
+</body>
+</html>
