@@ -166,8 +166,8 @@ const regions = new WeakMap();
 // should happen and return it as a plan; a write from inside one is a bug, and
 // every execute in the page refuses until the reason is cleared again.
 //
-// What that covers exactly: `Region.execute`, `intent` and `surface.apply` read
-// it. The exported `apply` does not, because it is the handler that takes one
+// What that covers exactly: `Region.execute`, `interpret`, `intent` and
+// `surface.apply` read it. The exported `apply` does not, because it is the handler that takes one
 // already validated operation and is called once per operation from inside
 // execute. Nothing can cover `node.remove()` or `container.append()`, which are
 // the platform's. The guard catches the ordinary way of breaking the rule, not

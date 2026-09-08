@@ -4,7 +4,7 @@
 import { region } from '../domocracy.js';
 import { test, assert, equal, note } from './harness.js';
 import { mountToolbarDemo } from '../examples/toolbar/main.js';
-import { rehearse, room } from '../examples/toolbar/scopes.js';
+import { nameOf, rehearse, room } from '../examples/toolbar/scopes.js';
 
 const same = (actual, expected, message) => assert(actual === expected, `${message}: not the same node`);
 const moves = 'moveBefore' in Element.prototype;
@@ -136,10 +136,10 @@ test('a rehearsal says what a control would do and changes nothing', sandbox => 
   const down = button(demo, 'ui:down');
 
   const rehearsed = rehearse(down, 'ui:down');
-  equal(rehearsed.route.map(each => each.name), ['Card “Write the docs”', 'Board', 'Page'], 'the route is the card, the board and the page');
+  equal(rehearsed.error, null, 'the plan checks out');
+  equal(rehearsed.interpreted.route.map(nameOf), ['Card “Write the docs”', 'Board', 'Page'], 'the route is the card, the board and the page');
   equal(rehearsed.answers.map(each => each.state), ['skipped', 'consume', 'unreached'], 'the card has no interpreter, the board consumes, the page is not reached');
-  equal(rehearsed.operations.map(each => each.op), ['move'], 'one move is proposed');
-  equal(rehearsed.check.ok, true, 'and the plan checks out');
+  equal(rehearsed.interpreted.operations.map(each => each.op), ['move'], 'one move is proposed');
   order.forEach((node, i) => same(list.children[i], node, 'nothing moved'));
 
   down.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
@@ -161,8 +161,62 @@ test('a rehearsal sets the guard, so an interpreter that writes is caught', sand
   const sloppy = room(host, 'Sloppy', { 'x': () => { rows.insert(['oops']); return { disposition: 'consume' }; } });
 
   const rehearsed = rehearse(control, 'x');
-  equal(rehearsed.answers[0].state, 'error', 'the interpreter threw');
-  assert(rehearsed.answers[0].error.message.includes('rehearsing'), `because the guard was set: ${rehearsed.answers[0].error.message}`);
+  assert(rehearsed.error !== null, 'the interpreter threw and the rehearsal says so');
+  assert(rehearsed.error.message.includes('no writes while interpreting'), `because the guard was set: ${rehearsed.error.message}`);
+  equal(rehearsed.interpreted, null, 'there is no interpretation to show');
+  equal(rehearsed.answers.length, 0, 'and no answers');
   equal(list.children.length, 0, 'and nothing was inserted');
   sloppy.dispose();
+});
+
+test('a rehearsal follows the tree: typing, selecting and adding all change the answer', sandbox => {
+  const demo = mountToolbarDemo(sandbox);
+  const head = () => demo.rehearsal.parentElement.querySelector('.rehearsal-check').textContent;
+  const verdicts = () => Array.from(demo.rehearsal.querySelectorAll('.answer-plan li'), row => row.textContent);
+  const over = control => control.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+
+  go(demo, 'form');
+  over(button(demo, 'ui:apply'));
+  assert(verdicts().some(text => text.includes('Nothing to apply')), `a clean form has nothing to apply: ${verdicts()}`);
+  const name = demo.rooms.form.element.querySelector('input[name="name"]');
+  name.value = 'Grace';
+  name.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  assert(verdicts().some(text => text.includes('commit')), `typing changed the answer to a commit: ${verdicts()}`);
+  assert(head().includes('2 operations'), `two operations would run: ${head()}`);
+
+  go(demo, 'listbox');
+  over(button(demo, 'ui:up'));
+  assert(verdicts().some(text => text.includes('Select an option')), `nothing is selected: ${verdicts()}`);
+  demo.rooms.listbox.element.querySelectorAll('.option')[1].click();
+  assert(verdicts().some(text => text.startsWith('move')), `selecting by a direct group changed the answer to a move: ${verdicts()}`);
+
+  go(demo, 'board');
+  const cards = demo.rooms.board.element.querySelector('.cards');
+  over(button(demo, 'ui:down'));
+  cards.lastElementChild.querySelector('.card-remove').click();
+  cards.lastElementChild.querySelector('.card-remove').click();
+  assert(verdicts().some(text => text.includes('already at the bottom')), `with the other cards gone, Down is refused: ${verdicts()}`);
+  demo.rooms.board.element.querySelector('[data-action="add"]').click();
+  assert(verdicts().some(text => text.startsWith('move')), `adding a card made Down a move again: ${verdicts()}`);
+  demo.dispose();
+});
+
+test('the arrow keys reach a button that arrived after the toolbar was made', sandbox => {
+  const demo = mountToolbarDemo(sandbox);
+  const toolbar = demo.toolbar.element;
+  const late = document.createElement('button');
+  late.type = 'button';
+  late.className = 'tb-button';
+  late.dataset.intent = 'ui:late';
+  late.textContent = 'Late';
+  toolbar.append(late);
+  const last = button(demo, 'toolbar:next');
+  last.focus();
+  last.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  same(document.activeElement, late, 'ArrowRight from the old last button reaches the new one');
+  equal(late.tabIndex, 0, 'and it is the tab stop now');
+  equal(last.tabIndex, -1, 'while the one before is not');
+  late.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  same(document.activeElement, button(demo, 'ui:apply'), 'and the wrap goes round through it');
+  demo.dispose();
 });

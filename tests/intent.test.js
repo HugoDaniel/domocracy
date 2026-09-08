@@ -311,7 +311,7 @@ test('a result is frozen and says what happened', sandbox => {
   outer.scope.handle('freeze', () => plan('consume', [op.insert(list.el, null, ['a'])]));
   const result = intent(button, 'freeze', null);
   assert(Object.isFrozen(result) && Object.isFrozen(result.trace) && Object.isFrozen(result.operations), 'the result, its trace and its operations are frozen');
-  assert(Object.isFrozen(result.trace[0]) && Object.isFrozen(result.effects), 'and every trace entry and the effects');
+  assert(Object.isFrozen(result.trace[0]) && Object.isFrozen(result.effects) && Object.isFrozen(result.route), 'and every trace entry, the effects and the route');
   throws(() => intent(document.createElement('div'), 'freeze', null), TypeError, 'a source outside the document');
   throws(() => intent(null, 'freeze', null), TypeError, 'no source at all');
 });

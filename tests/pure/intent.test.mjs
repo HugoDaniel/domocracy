@@ -4,8 +4,8 @@
 // covers what needs real events and a real document.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { op, region } from '../../domocracy.js';
-import { scope, intent, effect } from '../../intent.js';
+import { guard, op, region } from '../../domocracy.js';
+import { scope, interpret, intent, effect } from '../../intent.js';
 import { element, documentTree, recorder, text, fragment } from './tree.mjs';
 
 // A room in a document, with a region inside it and a control to raise from.
@@ -238,7 +238,9 @@ test('an interpreter answers with one of three dispositions, and a passing plan 
     assert.equal(result.disposition, 'passed');
     assert.deepEqual(result.trace.map(step => step.disposition), ['pass'], type);
     assert.equal(result.operations.length, 0);
+    assert.equal(result.trace[0].plan, type === 'empty' ? result.trace[0].plan : null, `${type}: a plan of nothing is null on the trace`);
   }
+  assert.deepEqual(intent(control, 'empty').trace[0].plan, { disposition: 'pass', operations: [], effects: [] }, 'and an empty plan is kept as returned');
   assert.equal(intent(control, 'unhandled').trace.length, 0, 'a scope with no interpreter for the type answers nothing');
   here.dispose();
 });
@@ -369,5 +371,79 @@ test('a plan may remove a node and then move it into another region', () => {
   assert.equal(a.parentNode, other.container);
   assert.equal(list.length, 0);
   assert.deepEqual(other.items, [undefined], 'the mirror only ever names its own region');
+  here.dispose();
+});
+
+test('interpret answers what an intent would do, with the whole route, and runs none of it', () => {
+  // doc > far > outer > host > control, with a scope on each of the three
+  // elements above the control and an interpreter for the type on two of them.
+  const doc = documentTree(), far = element('main'), outer = element('section'), host = element('div'), control = element('span');
+  doc.append(far);
+  far.append(outer);
+  outer.append(host);
+  host.append(control);
+  const list = region(element('ul'), recorder());
+  host.append(list.container);
+  list.insert([{ name: 'a' }, { name: 'b' }]);
+  const [a, b] = [list.nodes[0], list.nodes[1]];
+  const inner = scope(host), above = scope(outer), top = scope(far);
+  const proposed = [op.update(a, 'fresh')];
+  const answer = { disposition: 'continue', operations: proposed, reason: 'a is stale' };
+  inner.handle('edit', () => answer);
+  above.handle('edit', () => ({ disposition: 'consume', operations: [op.remove([b])], effects: [{ type: 'save' }] }));
+  top.handle('other', () => plan());
+  const ids = [];
+  const off = effect('save', (request, raising) => { ids.push(raising.id); return 'saved'; });
+
+  const seen = interpret(control, 'edit', { by: 'test' });
+  assert.equal(seen.source, control);
+  assert.equal(seen.type, 'edit');
+  assert.deepEqual(seen.args, { by: 'test' });
+  assert.equal(seen.disposition, 'consumed');
+  assert.deepEqual(seen.route, [host, outer, far], 'the route is every scope above the source, answering or not');
+  assert.deepEqual(seen.trace.map(step => step.disposition), ['continue', 'consume'], 'the trace is the ones that answered');
+  assert.equal(seen.trace[0].operations.length, 1, 'with what each proposed');
+  assert.equal(seen.trace[0].effects.length, 0);
+  assert.equal(seen.trace[1].effects[0].type, 'save', 'and what each asked for');
+  assert.equal(seen.operations.length, 2, 'the whole sequence, validated');
+  assert.equal(seen.effects.length, 1, 'the requests, not outcomes');
+  assert.equal(seen.effects[0].type, 'save');
+  assert.deepEqual(names(list), ['a', 'b'], 'nothing ran');
+  assert.equal(a.data, undefined, 'not even the update');
+  assert.deepEqual(ids, [], 'and no effect');
+  assert.ok(Object.isFrozen(seen) && Object.isFrozen(seen.route) && Object.isFrozen(seen.trace), 'the answer is frozen');
+  assert.ok(Object.isFrozen(seen.trace[0]) && Object.isFrozen(seen.trace[0].operations) && Object.isFrozen(seen.effects), 'all the way down');
+  proposed.push(op.clear(list.container));
+  assert.equal(seen.trace[0].operations.length, 1, "a contribution is a copy, so the interpreter's own array is its own");
+  proposed.pop();
+  assert.equal(seen.trace[0].plan, answer, 'the plan is kept as the interpreter returned it, the same object');
+  assert.equal(seen.trace[0].plan.reason, 'a is stale', 'so whatever else it carries is still there');
+  assert.ok(!Object.isFrozen(answer), 'and it is the interpreter\'s own, not frozen by the library');
+
+  const result = intent(control, 'edit', { by: 'test' });
+  assert.ok(result.id > seen.id, 'an interpretation takes an id, raised or not, and a raise takes the next');
+  assert.deepEqual(result.route, seen.route, 'a result carries the route too');
+  assert.deepEqual(names(list), ['a'], 'and this time it ran');
+  assert.equal(a.data, 'fresh');
+  assert.deepEqual(ids, [result.id], 'an adapter sees the interpretation as the intent, with its id');
+  assert.equal(result.effects[0].status, 'done');
+  off();
+  inner.dispose();
+  above.dispose();
+  top.dispose();
+});
+
+test('interpret is refused inside an interpreter, and what a plan proposes must be arrays', () => {
+  const { host, control } = room();
+  const here = scope(host);
+  here.handle('nested', () => { interpret(control, 'edit'); });
+  assert.throws(() => interpret(control, 'nested'), /no interpretation while interpreting/);
+  assert.throws(() => intent(control, 'nested'), /no interpretation while interpreting/);
+  assert.equal(guard.reason, null, 'the guard is clear again after the refusal');
+  here.handle('shape', () => ({ disposition: 'consume', operations: {} }));
+  assert.throws(() => interpret(control, 'shape'), /a plan's operations must be an array/);
+  here.handle('asks', () => ({ disposition: 'continue', effects: 'save' }));
+  assert.throws(() => intent(control, 'asks'), /a plan's effects must be an array/);
+  assert.equal(guard.reason, null);
   here.dispose();
 });

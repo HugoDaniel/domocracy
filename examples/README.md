@@ -78,8 +78,8 @@ and the button that asked for the move keeps its focus through it.
   the toolbar. A board card is a scope inside the board's, so an intent from a
   card visits two rooms and the plan carries both contributions in order.
 - `scopes.js` is `room`, which is `scope` with a name, and `rehearse`, which
-  walks the route `intent` would take, asks the same interpreters under the
-  same guard, and runs nothing.
+  is `interpret` with the names put back: the route, the trace and the checks
+  are the library's, and the example only says which room is which.
 - `main.js` is the page: the dock, the travel between rooms as intents the
   page's own scope answers, the status effect, and the two panels.
 
@@ -108,9 +108,9 @@ where none exists.
 the native order and Escape closes the nearest open group. There is no arrow-key
 menu system and no application menu role.
 
-**A rehearsal is not a sandbox.** It sets the same guard `intent` sets, which
-catches a write through a region and nothing else. An interpreter that writes
-through the platform's own methods is a bug in both.
+**A rehearsal is not a sandbox.** It is `interpret`, which sets the guard
+`intent` sets, and that catches a write through a region and nothing else. An
+interpreter that writes through the platform's own methods is a bug in both.
 
 ## Tests
 

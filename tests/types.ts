@@ -8,8 +8,8 @@
 // need them to be.
 import { op, validate, apply, region, regionOf, ownerOf, divide, guard, on, dispatch } from '../domocracy.js';
 import type { Adapter, Group, Located, Off, Operation, Region } from '../domocracy.js';
-import { scope, intent, effect } from '../intent.js';
-import type { Intent, Plan, Result, Scope } from '../intent.js';
+import { scope, interpret, intent, effect } from '../intent.js';
+import type { EffectRequest, Intent, Interpretation, Plan, Result, Scope, TraceEntry } from '../intent.js';
 import { addressOf, controlsFor, operationsFor, apply as applyChanges } from '../surface.js';
 import type { Address, Change } from '../surface.js';
 
@@ -98,9 +98,23 @@ const stopSaving: Off = effect<{ type: 'save'; address: string }, { index: numbe
   return Promise.resolve(address + index);
 });
 
+// What an intent would do, checked and not run: the same route, trace and
+// operations a result carries, with the effects still as requests.
+const seen: Interpretation<{ index: number }, Row, Partial<Row>> = interpret<{ index: number }, Row, Partial<Row>>(first, 'row:pick', { index: 0 });
+const raisedFrom: Element = seen.source;
+const wouldBe: 'consumed' | 'passed' = seen.disposition;
+const wholeRoute: readonly Element[] = seen.route;
+const proposed: Group<Row, Partial<Row>> = seen.trace[0].operations;
+const requested: readonly EffectRequest[] = seen.effects;
+const forAdapters: Intent<{ index: number }> = seen;
+
 const outcome: Result<Row, Partial<Row>> = intent<{ index: number }, Row, Partial<Row>>(first, 'row:pick', { index: 0 });
 const answered: 'consumed' | 'passed' = outcome.disposition;
-const asked: readonly { readonly scope: Element; readonly disposition: 'pass' | 'continue' | 'consume' }[] = outcome.trace;
+const route: readonly Element[] = outcome.route;
+const asked: readonly TraceEntry<Row, Partial<Row>>[] = outcome.trace;
+const decided: 'pass' | 'continue' | 'consume' = asked[0].disposition;
+const returned: Plan<Row, Partial<Row>> | null = asked[0].plan;
+const reason: string | undefined = (returned as (Plan<Row, Partial<Row>> & { reason?: string }) | null)?.reason;
 const ran: Group<Row, Partial<Row>> = outcome.operations;
 const outside: string | undefined = outcome.effects[0]?.type;
 

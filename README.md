@@ -47,7 +47,7 @@ In a project with a bundler, use the package entry points:
 
 ```js
 import { region, on, dispatch, op } from 'domocracy';
-import { scope, intent, effect } from 'domocracy/intent';
+import { scope, interpret, intent, effect } from 'domocracy/intent';
 import { apply as applySurface } from 'domocracy/surface';
 ```
 
@@ -332,7 +332,9 @@ The walk follows light-DOM parents, ignores slot assignment, and stops at a shad
 
 `dispatch` sends a native `CustomEvent`. Its listeners run as part of event dispatch and may act immediately. `intent` explicitly walks registered scopes, collects plans, validates operations, executes them, and reports the result. A native event does not automatically become an intent; your handler makes that connection.
 
-`intent` returns `{ id, disposition, trace, operations, effects }`. The result disposition is `consumed` or `passed`, not the interpreter's three-way disposition. A `continue` plan can execute work even if the final result is `passed`. The trace says which scopes answered; effects contain `done` or `failed` outcomes.
+`intent` returns `{ id, disposition, route, trace, operations, effects }`. The result disposition is `consumed` or `passed`, not the interpreter's three-way disposition. A `continue` plan can execute work even if the final result is `passed`. The route is every scope above the source; the trace says which of them answered and what each contributed; effects contain `done` or `failed` outcomes.
+
+`interpret(source, type, args)` does everything `intent` does before executing and returns it frozen: the same route, trace and validated operations, with the effects still as requests. Nothing runs. A page that shows what a control would do calls `interpret`; when the control is used it calls `intent`, which interprets afresh, because the tree may have changed in between.
 
 Effect adapters are registered globally by type, with one adapter per type. Scope-local interpretation does not make effect registration scope-local. A missing adapter or a synchronous adapter exception produces a failed effect outcome; later effects still run.
 
@@ -562,7 +564,7 @@ Avoid casually mutating managed structure from adapter callbacks. For ordinary a
 
 ### The guard is a development contract
 
-While scope interpreters run, `guard.reason` blocks `region.execute`, nested `intent`, and `applySurface`. It does not intercept native DOM methods or the exported low-level `apply`. It is not a sandbox or a proof that an interpreter is pure. Interpreters are responsible for reading and returning plans without side effects.
+While scope interpreters run, `guard.reason` blocks `region.execute`, nested `intent` and `interpret`, and `applySurface`. It does not intercept native DOM methods or the exported low-level `apply`. It is not a sandbox or a proof that an interpreter is pure. Interpreters are responsible for reading and returning plans without side effects.
 
 ## API reference
 
@@ -616,6 +618,7 @@ Existing children are adopted without being recreated. Without an item mirror, t
 | `scope(element)` | Register a scope on one element. |
 | `scope.handle(type, interpreter)` | Register one interpreter for that type; returns unsubscribe. |
 | `scope.dispose()` | Remove this scope and its interpreters. |
+| `interpret(source, type, args?)` | Interpret and check without executing; return the route, trace, operations and effect requests. |
 | `intent(source, type, args?)` | Interpret and execute; return trace and outcomes. |
 | `effect(type, adapter)` | Register an effect adapter; returns unsubscribe. |
 
@@ -668,6 +671,6 @@ Browser tests require an installed Chrome. Set the `CHROME` environment variable
 
 The focused guides provide additional detail: [operations](docs/operations.md), [intentions](docs/intents.md), [surfaces](docs/surface.md), and [sequence contracts](docs/sequences.md). Read the implementation alongside them when building a custom executor.
 
-Three runnable [examples](examples/README.md) ship with the repository. [Navigation](examples/navigation/) builds two independent bars from recursive component factories, with nested submenus, optional icons, and delegated handlers registered once per bar. [Canvas history](examples/canvas-history/) drags three circles on a single canvas child and adds undo, redo and replay, which are the example's own code and not the library's. [Toolbar](examples/toolbar/) is one toolbar whose buttons mean whatever the room around them says, with a panel that shows what a button would do before it is pressed. Serve the repository over HTTP and open any directory; no build step is involved. The [plan they were built from](docs/plans/01-examples.md) records what each page promises and what it does not.
+Three runnable [examples](examples/README.md) ship with the repository. [Navigation](examples/navigation/) builds two independent bars from recursive component factories, with nested submenus, optional icons, and delegated handlers registered once per bar. [Canvas history](examples/canvas-history/) drags three circles on a single canvas child and adds undo, redo and replay, which are the example's own code and not the library's. [Toolbar](examples/toolbar/) is one toolbar whose buttons mean whatever the room around them says, with a panel built on `interpret` that shows what a button would do before it is pressed. Serve the repository over HTTP and open any directory; no build step is involved. The [plan they were built from](docs/plans/01-examples.md) records what each page promises and what it does not.
 
 Licensed under [CC0](LICENSE).

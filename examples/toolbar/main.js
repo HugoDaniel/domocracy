@@ -9,10 +9,10 @@
 //     the plans run as one sequence, then the effects
 //     the toolbar reports what happened and the log shows it
 //
-// The rehearsal panel takes the first two steps and stops: it asks the same
-// interpreters the same question under the same guard and shows the answer
-// without running it. That is not a second implementation of anything, it is
-// what interpreters being pure buys.
+// The rehearsal panel takes the first two steps and stops: it calls `interpret`,
+// which is the half of `intent` that writes nothing, and shows the answer room
+// by room. When the button is pressed, `intent` interprets again, because the
+// tree may have changed since the panel asked.
 import { on, op, region } from 'domocracy';
 import { effect } from 'domocracy/intent';
 import { createToolbar } from './toolbar.js';
@@ -149,14 +149,13 @@ export function mountToolbarDemo(root, options = {}) {
     create(answer) {
       const row = element('li', 'answer');
       row.dataset.state = answer.state;
-      row.append(element('span', 'answer-room', answer.room.name), element('span', 'answer-verdict', VERDICT[answer.state]));
-      if (answer.plan) {
+      row.append(element('span', 'answer-room', answer.name), element('span', 'answer-verdict', VERDICT[answer.state]));
+      if (answer.operations !== undefined) {
         const plan = element('ul', 'answer-plan');
-        for (const o of answer.plan.operations ?? []) plan.append(element('li', 'answer-op', describe(o)));
-        for (const e of answer.plan.effects ?? []) plan.append(element('li', 'answer-effect', `effect ${e.type}${typeof e.text === 'string' ? `: “${e.text}”` : ''}`));
+        for (const o of answer.operations) plan.append(element('li', 'answer-op', describe(o)));
+        for (const e of answer.effects) plan.append(element('li', 'answer-effect', `effect ${e.type}${typeof e.text === 'string' ? `: “${e.text}”` : ''}`));
         if (plan.children.length > 0) row.append(plan);
       }
-      if (answer.error) row.append(element('span', 'answer-error', answer.error.message));
       return row;
     },
   });
@@ -186,15 +185,18 @@ export function mountToolbarDemo(root, options = {}) {
   const show = control => {
     const asked = intentOf(control);
     const rehearsed = rehearse(control, asked.type, asked.args);
-    head.textContent = rehearsed.route.length === 0
-      ? `“${labelOf(control)}” would raise ${asked.type}, and no scope is above it: the intent would pass with nobody answering.`
-      : `“${labelOf(control)}” would raise ${asked.type}. The route is ${rehearsed.route.map(each => each.name).join(' → ')}.`;
+    const seen = rehearsed.interpreted;
+    head.textContent = seen === null
+      ? `“${labelOf(control)}” would raise ${asked.type}, and interpreting it failed.`
+      : seen.route.length === 0
+        ? `“${labelOf(control)}” would raise ${asked.type}, and no scope is above it: the intent would pass with nobody answering.`
+        : `“${labelOf(control)}” would raise ${asked.type}. The route is ${seen.route.map(each => nameOf(each) ?? 'a scope').join(' → ')}.`;
     // One group: the old rows go and the new ones arrive as a single change.
     answers.execute([op.clear(answersHost), op.insert(answersHost, null, rehearsed.answers)]);
-    check.textContent = rehearsed.route.length === 0 ? ''
-      : rehearsed.check.ok
-        ? `${plural(rehearsed.operations.length, 'operation')} and ${plural(rehearsed.effects.length, 'effect')}, checked as one sequence: it would run. Nothing has.`
-        : `The plan would be refused before anything ran: ${rehearsed.check.error.message}`;
+    check.textContent = seen === null
+      ? `The intent would be refused before anything ran: ${rehearsed.error.message}`
+      : seen.route.length === 0 ? ''
+        : `${plural(seen.operations.length, 'operation')} and ${plural(seen.effects.length, 'effect')}, checked as one sequence: it would run. Nothing has.`;
   };
 
   let previewed = null, stale = true;
@@ -250,14 +252,18 @@ export function mountToolbarDemo(root, options = {}) {
     'toolbar:go': raised => travel(stops.find(stop => stop.key === raised.args?.room) ?? null),
   });
 
+  // The tree changed, so what a control would do may have too.
+  const refresh = () => {
+    stale = true;
+    if (previewed !== null && previewed.isConnected) preview(previewed);
+    else { previewed = null; showNothing(); }
+  };
+
   const sync = () => {
     const here = stopOf();
     for (const button of places.querySelectorAll('.place')) button.setAttribute('aria-pressed', String(button.dataset.room === here?.key));
     demo.dataset.where = here?.key ?? '';
-    // The tree changed, so what a control would do may have too.
-    stale = true;
-    if (previewed !== null && previewed.isConnected) preview(previewed);
-    else { previewed = null; showNothing(); }
+    refresh();
   };
 
   // ----------------------------------------------------------------- effects
@@ -278,6 +284,13 @@ export function mountToolbarDemo(root, options = {}) {
     on(demo, 'focusin', '[data-intent]', (event, control) => preview(control)),
     on(places, 'click', '.place', (event, button) => raise(button, 'toolbar:go', { room: button.dataset.room })),
     on(demo, 'intent:raised', '*', event => { report(event.detail); sync(); }),
+    // A rehearsal is an answer about the tree as it was asked. Typing in a
+    // field, selecting an option or adding a card changes the tree without an
+    // intent, so any input or click inside the demo asks again, after the
+    // handlers below this root have run. A click on a control that raises is
+    // already covered by the report of its intent.
+    on(demo, 'input', '*', () => refresh()),
+    on(demo, 'click', '*', (event, target) => { if (target.closest('[data-intent]') === null) refresh(); }),
   ];
 
   sync();

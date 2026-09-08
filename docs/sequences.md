@@ -59,7 +59,7 @@ The two layers then differ on purpose. A notification divides, because a remove 
 
 ## What the guard covers
 
-`guard.reason` is set while `intent` runs its interpreters. It is read by `region.execute`, by `intent` itself and by `surface.apply`. That is the whole list.
+`guard.reason` is set while `interpret` runs the interpreters, which is how every `intent` starts. It is read by `region.execute`, by `interpret` and `intent`, and by `surface.apply`. That is the whole list.
 
 It does not cover the exported `apply`, which is the DOM handler and takes one already validated operation, and it cannot cover `node.remove()` or `container.append()`, which are the platform's and answer to nobody. An interpreter that writes through either of those writes, and the plan it returns is then describing a tree that has already moved.
 

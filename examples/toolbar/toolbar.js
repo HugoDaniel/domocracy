@@ -11,7 +11,9 @@
 // while its meaning changes.
 //
 // What the toolbar does own is being a toolbar: one tab stop, arrow keys between
-// the buttons, Home and End. That is the whole behavior in this file.
+// the buttons, Home and End. That is the whole behavior in this file, and it
+// reads the buttons from the tree each time, so one that arrives later is
+// reached by the same keys without anything being registered for it.
 import { on } from 'domocracy';
 import { raise } from './scopes.js';
 
@@ -33,7 +35,7 @@ export function createToolbar() {
   element.setAttribute('aria-label', 'Toolbar');
   element.dataset.label = 'the toolbar';
 
-  const buttons = CONTROLS.map((control, i) => {
+  CONTROLS.forEach((control, i) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = control.travel ? 'tb-button tb-travel' : 'tb-button';
@@ -42,10 +44,10 @@ export function createToolbar() {
     // Roving tabindex: the toolbar is one tab stop and the arrows move inside it.
     button.tabIndex = i === 0 ? 0 : -1;
     element.append(button);
-    return button;
   });
 
-  const rove = (to) => { for (const button of buttons) button.tabIndex = button === to ? 0 : -1; };
+  const buttons = () => Array.from(element.querySelectorAll('.tb-button:not([disabled])'));
+  const rove = (to) => { for (const button of buttons()) button.tabIndex = button === to ? 0 : -1; };
 
   const offs = [
     // The toolbar raises and reports. It does not know what the answer was.
@@ -54,15 +56,16 @@ export function createToolbar() {
     on(element, 'keydown', '.tb-button', (event, button) => {
       if (!(event.key in KEYS)) return;
       event.preventDefault();
-      const at = buttons.indexOf(button);
-      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (at + KEYS[event.key] + buttons.length) % buttons.length;
-      buttons[next].focus();
+      const all = buttons();
+      const at = all.indexOf(button);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? all.length - 1 : (at + KEYS[event.key] + all.length) % all.length;
+      all[next].focus();
     }),
   ];
 
   return {
     element,
-    buttons,
+    get buttons() { return buttons(); },
     dispose() {
       for (const off of offs) off();
       element.remove();

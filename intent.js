@@ -1,14 +1,20 @@
-// domocracy intentions. Three names on the core.
+// domocracy intentions. Four names on the core.
 //
-//   scope(element)              interpreters for the intents raised below it
-//   intent(source, type, args)  a request whose meaning its surroundings decide
-//   effect(type, adapter)       what runs an effect after the operations
+//   scope(element)                 interpreters for the intents raised below it
+//   interpret(source, type, args)  what an intent would do, checked and not run
+//   intent(source, type, args)     a request whose meaning its surroundings decide
+//   effect(type, adapter)          what runs an effect after the operations
 //
 // A control raises an intent and the scopes above it interpret it, nearest
 // first, each answering with a plan: a disposition, the operations it proposes
 // and the effects it asks for. Nothing in a plan has run. The sequence is
 // validated once, executed one operation at a time through the regions that own
 // the containers it names, and the effects follow in plan order.
+//
+// `interpret` is the half of that which writes nothing: the route, the answers,
+// the checks. `intent` is `interpret` and then the running. A page that wants to
+// show what a control would do asks the first and not the second, and asks the
+// second afresh when the control is used, because the tree may have moved.
 //
 // Interpreters describe, handlers execute: an interpreter reads the tree, which
 // is the state, and writes nothing. The core's guard is set while they run, so
@@ -19,7 +25,8 @@ import { divide, ownerOf, regionOf, validate, guard } from './domocracy.js';
 const freeze = Object.freeze;
 const scopes = new WeakMap();   // element -> { element, interpreters }
 const adapters = new Map();     // effect type -> adapter
-let raised = 0;                 // intent ids, in the order they were raised
+let raised = 0;                 // intent ids, in the order they were interpreted
+const NOTHING = freeze([]);
 
 // A scope is an element that answers for the intents raised below it. One scope
 // per element; `dispose()` gives the element up again.
@@ -145,21 +152,43 @@ function run(request, raising) {
   }
 }
 
-function contribute(plan, disposition, into, of) {
-  const proposed = plan[of];
-  if (proposed === undefined) return;
-  if (disposition === 'pass' && proposed.length > 0) throw new TypeError(`intent: a passing plan proposed ${of}`);
-  for (let i = 0; i < proposed.length; i++) into.push(proposed[i]);
+// What one plan contributes under one heading, as a frozen copy that is the
+// plan's own to keep: the trace carries it, and an interpreter that goes on
+// using its array afterwards changes nothing here. A pass contributes nothing,
+// and a passing plan that proposes something is a mistake worth throwing for.
+function contribution(plan, disposition, of) {
+  const proposed = plan === null ? undefined : plan[of];
+  if (proposed === undefined) return NOTHING;
+  if (!Array.isArray(proposed)) throw new TypeError(`intent: a plan's ${of} must be an array`);
+  if (proposed.length === 0) return NOTHING;
+  if (disposition === 'pass') throw new TypeError(`intent: a passing plan proposed ${of}`);
+  return freeze(proposed.slice());
 }
 
-// An intent is a request raised from an element: what it means is decided by the
-// scopes above it, and what it references is in its args and does not move with
-// it. Returns what happened: the disposition, the scopes that answered, the
-// operations that ran and the effects that were asked for.
-export function intent(source, type, args) {
-  if (guard.reason !== null) throw new Error(`intent: no intents while ${guard.reason}`);
+// The half of an intent that writes nothing. The route is every scope above the
+// source, nearest first; the trace is what each scope with an interpreter for
+// the type answered, and what it contributed, until one consumed; the operations
+// are the whole sequence, dry run as one; and the ownership pass asks which
+// region would run each of them as the plan stands. What comes back is exactly
+// what `intent` would run next, frozen, and nothing has run.
+//
+// A trace entry keeps the plan as the interpreter returned it, beside the
+// frozen copies of what it contributed. The copies are what ran, or would; the
+// plan is the interpreter's own object, for whatever else it chose to say in it,
+// and it is neither copied nor frozen here.
+//
+// The tree is read as it stands, so the answer is good for the tree as it
+// stands: a page that shows it asks again after anything changes, and asks
+// `intent` rather than running this result when the control is used.
+//
+// Every interpretation takes an id, raised or not, so an interpreter and an
+// adapter see one number for one intent and a rehearsal never shares its
+// number with a raise.
+export function interpret(source, type, args) {
+  if (guard.reason !== null) throw new Error(`interpret: no interpretation while ${guard.reason}`);
   if (!source || source.nodeType !== 1 || !source.isConnected) throw new TypeError('intent: the source must be an element in the document');
-  const raising = freeze({ id: ++raised, source, type, args });
+  const id = ++raised;
+  const raising = freeze({ id, source, type, args });
   // The route is taken before any interpreter runs, so a plan that moves the
   // source does not change which scopes finish this intent; the next intent
   // sees the new surroundings. The walk starts above the source, so a scope's
@@ -178,30 +207,54 @@ export function intent(source, type, args) {
     for (let i = 0; i < route.length && !consumed; i++) {
       const interpreter = route[i].interpreters.get(type);
       if (interpreter === undefined) continue;
-      const plan = interpreter(raising, route[i].element);
-      const disposition = plan === undefined || plan === null ? 'pass' : plan.disposition;
+      const answer = interpreter(raising, route[i].element);
+      const plan = answer === undefined || answer === null ? null : answer;
+      const disposition = plan === null ? 'pass' : plan.disposition;
       if (disposition !== 'pass' && disposition !== 'continue' && disposition !== 'consume') {
         throw new TypeError(`intent: an interpreter for ${type} returned the disposition ${JSON.stringify(disposition)}`);
       }
-      trace.push(freeze({ scope: route[i].element, disposition }));
-      if (plan !== undefined && plan !== null) {
-        contribute(plan, disposition, operations, 'operations');
-        contribute(plan, disposition, effects, 'effects');
-      }
+      const proposed = contribution(plan, disposition, 'operations');
+      const asked = contribution(plan, disposition, 'effects');
+      trace.push(freeze({ scope: route[i].element, disposition, plan, operations: proposed, effects: asked }));
+      for (let j = 0; j < proposed.length; j++) operations.push(proposed[j]);
+      for (let j = 0; j < asked.length; j++) effects.push(asked[j]);
       consumed = disposition === 'consume';
     }
   } finally {
     guard.reason = null;
   }
   // One dry run over the whole sequence, whatever regions it touches, and one
-  // pass over the plan as written. A failure in either rejects the intent with
-  // nothing changed. Then the operations run one at a time, in plan order, each
-  // through the region that owns it at the moment it runs, so no grouping can
-  // reorder a dependency, every region sees each change as it happens, and a
-  // write from an observer between two operations cannot leave the next one
-  // with the region it used to belong to.
+  // pass over the plan as written. A failure in either refuses the intent
+  // before anything could run.
   const group = validate(operations);
   ownersOf(group);
+  return freeze({
+    id,
+    source,
+    type,
+    args,
+    disposition: consumed ? 'consumed' : 'passed',
+    route: freeze(Array.from(route, each => each.element)),
+    trace: freeze(trace),
+    operations: group,
+    effects: freeze(effects),
+  });
+}
+
+// An intent is a request raised from an element: what it means is decided by the
+// scopes above it, and what it references is in its args and does not move with
+// it. It is `interpret`, then the running. Returns what happened: the
+// disposition, the scopes that answered, the operations that ran and what
+// became of the effects that were asked for.
+export function intent(source, type, args) {
+  if (guard.reason !== null) throw new Error(`intent: no intents while ${guard.reason}`);
+  const interpreted = interpret(source, type, args);
+  // The operations run one at a time, in plan order, each through the region
+  // that owns it at the moment it runs, so no grouping can reorder a
+  // dependency, every region sees each change as it happens, and a write from
+  // an observer between two operations cannot leave the next one with the
+  // region it used to belong to.
+  const group = interpreted.operations;
   for (let i = 0; i < group.length; i++) {
     try {
       if (runsNothing(group[i])) continue;
@@ -221,12 +274,14 @@ export function intent(source, type, args) {
       throw error;
     }
   }
-  const done = new Array(effects.length);
-  for (let i = 0; i < effects.length; i++) done[i] = run(effects[i], raising);
+  const requests = interpreted.effects;
+  const done = new Array(requests.length);
+  for (let i = 0; i < requests.length; i++) done[i] = run(requests[i], interpreted);
   return freeze({
-    id: raising.id,
-    disposition: consumed ? 'consumed' : 'passed',
-    trace: freeze(trace),
+    id: interpreted.id,
+    disposition: interpreted.disposition,
+    route: interpreted.route,
+    trace: interpreted.trace,
     operations: group,
     effects: freeze(done),
   });

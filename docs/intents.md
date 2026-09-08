@@ -65,9 +65,39 @@ panel.handle('layer:pick', () => {
 });
 ```
 
-The core's `guard` is set for as long as the interpreters run, and every `region.execute` in the page refuses until it is clear again. So does a nested `intent`.
+The core's `guard` is set for as long as the interpreters run, and every `region.execute` in the page refuses until it is clear again. So does a nested `intent` or `interpret`.
 
-That is what makes a plan worth having. An interpreter is a pure function of the intent and the tree, so you can call it and look at what an action was going to do without any of it happening. What the guard covers exactly, and what it cannot, is in [sequences](sequences.md).
+That is what makes a plan worth having. An interpreter is a pure function of the intent and the tree, so what an action was going to do can be asked without any of it happening. What the guard covers exactly, and what it cannot, is in [sequences](sequences.md).
+
+## Asking without running
+
+`interpret` is the half of `intent` that writes nothing:
+
+```js
+import { interpret } from 'domocracy/intent';
+
+const seen = interpret(layer, 'layer:pick', { with: 'the pointer' });
+```
+
+The code above takes the route, asks the interpreters under the guard, dry runs their operations as one sequence and asks which region would run each of them. It returns all of that frozen and runs none of it. `intent` is this and then the running, so what `interpret` gives back is exactly what `intent` would do next:
+
+```js
+{
+  id: 7,
+  source: layer, type: 'layer:pick', args: { with: 'the pointer' },
+  disposition: 'consumed',
+  route: [panelElement, boardElement],
+  trace: [{ scope: panelElement, disposition: 'consume', operations: [...], effects: [...] }],
+  operations: [ ...the frozen sequence, checked and not applied... ],
+  effects: [{ type: 'save', address: 'world:layers' }],
+}
+```
+
+`route` is every scope above the source, nearest first, whether or not it had anything to say. `trace` is the ones that answered, each with what it contributed. A scope on the route and not in the trace either had no interpreter for the type or came after the one that consumed. The `effects` here are the requests; the `effects` of an intent's result are what became of them.
+
+Each trace entry also keeps `plan`, the object the interpreter returned, or null when it returned nothing. The `operations` and `effects` on the entry are frozen copies and are what would run; the plan is the interpreter's own, neither copied nor frozen, and it is where anything else the interpreter said is read from. An interpreter that returns `{ disposition: 'consume', effects: [...], reason: 'Select an option first' }` has said why, and a panel showing what a control would do reads the reason from the trace.
+
+The answer is good for the tree as it stands. A page that shows what a control would do asks again after anything changes, and when the control is used it raises `intent`, which interprets afresh, rather than running a result it kept. Every interpretation takes an id, raised or not.
 
 ## Effects
 
@@ -87,16 +117,17 @@ An effect with no adapter fails with a named error and the next effect still run
 {
   id: 7,
   disposition: 'consumed',
-  trace: [{ scope: panelElement, disposition: 'consume' }],
+  route: [panelElement, boardElement],
+  trace: [{ scope: panelElement, disposition: 'consume', operations: [...], effects: [...] }],
   operations: [ ...the frozen sequence that ran... ],
   effects: [{ type: 'save', status: 'done', result: aPromise }],
 }
 ```
 
-The trace is every scope that answered, in the order they were asked. It is the thing to log when a control does something you did not expect: it says which ancestor decided.
+The trace is every scope that answered, in the order they were asked, with what each proposed and the plan it returned. It is the thing to log when a control does something you did not expect: it says which ancestor decided, and what it decided. The route is every scope that was there to ask.
 
 ## When a plan fails
 
-A plan that is wrong when it is written changes nothing. Two passes see to that: the core's dry run over the whole sequence, and a pass that asks which region owns each operation as the plan stands. A plan that names a container with no region, or that clears a region and then names one of its former children, is refused before the first operation.
+A plan that is wrong when it is written changes nothing. Two passes see to that: the core's dry run over the whole sequence, and a pass that asks which region owns each operation as the plan stands. A plan that names a container with no region, or that clears a region and then names one of its former children, is refused before the first operation. Both passes are `interpret`'s, so a rehearsal refuses the same plans.
 
 A plan that fails once it is running leaves the operations before the failure applied. The error carries `committed`, and it counts the plan's operations, not the region's. There is no rollback. [Sequences](sequences.md) says why.

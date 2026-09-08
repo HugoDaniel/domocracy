@@ -44,10 +44,35 @@ export interface Scope {
   dispose(): void;
 }
 
-/** One scope's answer, in the order the scopes were asked. */
-export interface TraceEntry {
+/** One scope's answer, in the order the scopes were asked, and what it contributed. */
+export interface TraceEntry<S = unknown, D = unknown> {
   readonly scope: Element;
   readonly disposition: Disposition;
+  /**
+   * The plan as the interpreter returned it, or null when it returned nothing.
+   * The interpreter's own object, neither copied nor frozen: whatever else it
+   * carries, a reason or a label, is read from here.
+   */
+  readonly plan: Plan<S, D> | null;
+  /** The operations this scope proposed, frozen. Empty for a pass. */
+  readonly operations: Group<S, D>;
+  /** The effects this scope asked for, frozen. Empty for a pass. */
+  readonly effects: readonly EffectRequest[];
+}
+
+/**
+ * An intent interpreted and checked, and not run: exactly what `intent` would
+ * do next. Good for the tree as it stands; ask again after anything changes.
+ */
+export interface Interpretation<A = unknown, S = unknown, D = unknown> extends Intent<A> {
+  readonly disposition: 'consumed' | 'passed';
+  /** Every scope above the source, nearest first, whether or not it answered. */
+  readonly route: readonly Element[];
+  readonly trace: readonly TraceEntry<S, D>[];
+  /** The whole sequence, dry run and checked for ownership, frozen and not applied. */
+  readonly operations: Group<S, D>;
+  /** The effect requests, in plan order. None has run. */
+  readonly effects: readonly EffectRequest[];
 }
 
 /** What became of one effect request. A promise is a result, not awaited. */
@@ -58,11 +83,12 @@ export interface EffectResult {
   readonly error?: Error;
 }
 
-/** What an intent did: who answered, what ran, what was asked of the outside. */
+/** What an intent did: who answered, what ran, what became of the effects. */
 export interface Result<S = unknown, D = unknown> {
   readonly id: number;
   readonly disposition: 'consumed' | 'passed';
-  readonly trace: readonly TraceEntry[];
+  readonly route: readonly Element[];
+  readonly trace: readonly TraceEntry<S, D>[];
   /** The frozen validated sequence, already applied. */
   readonly operations: Group<S, D>;
   readonly effects: readonly EffectResult[];
@@ -72,9 +98,17 @@ export interface Result<S = unknown, D = unknown> {
 export function scope(element: Element): Scope;
 
 /**
- * Raises an intent from a connected element: the scopes above it interpret it,
- * their operations are validated as one sequence and executed through the
- * regions that own them, and their effects run afterwards in plan order.
+ * The half of `intent` that writes nothing: takes the route, asks the
+ * interpreters under the guard, dry runs their operations as one sequence and
+ * asks which region would run each. Returns all of it frozen and runs none of
+ * it. Every interpretation takes an id, raised or not.
+ */
+export function interpret<A = unknown, S = unknown, D = unknown>(source: Element, type: string, args?: A): Interpretation<A, S, D>;
+
+/**
+ * Raises an intent from a connected element: `interpret`, then the operations
+ * are executed through the regions that own them and the effects run afterwards
+ * in plan order.
  *
  * An operation that fails throws with `committed` set to how many of the plan's
  * operations ran; the ones before it stay applied.
