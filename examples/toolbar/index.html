@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>domocracy example: one toolbar, four rooms</title>
+<link rel="stylesheet" href="./styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "domocracy": "../../domocracy.js",
+    "domocracy/intent": "../../intent.js",
+    "domocracy/surface": "../../surface.js"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+  <h1>One toolbar, four rooms</h1>
+
+  <p>The toolbar below has six buttons and not one handler that knows what they
+  do. A button raises an intent, and the room the toolbar is in answers it:
+  Apply commits a form, confirms a dialog, or ticks a card. Move the toolbar and
+  the same buttons mean something else. Nothing in the toolbar changes, and the
+  button you were on keeps its focus.</p>
+
+  <h2>Who owns what</h2>
+  <ul>
+    <li><strong>The toolbar</strong> owns being a toolbar: one tab stop, arrow
+    keys between the buttons. Each button carries the intent it raises in
+    <code>data-intent</code> and nothing else.</li>
+    <li><strong>Each room</strong> owns a scope: one interpreter per intent
+    type, which reads the room and returns a plan. The rooms know nothing about
+    the toolbar or about each other. A card on the board is a room inside a
+    room.</li>
+    <li><strong>The page</strong> owns the dock, the travel between rooms, the
+    status line and the two panels, and it runs the effects. The rehearsal panel
+    asks the same interpreters <code>intent</code> would, under the same guard,
+    and runs none of it.</li>
+  </ul>
+
+  <h2>What to try</h2>
+  <ol class="checklist">
+    <li>Hover or focus any button before pressing it. The panel says which rooms
+    are on its route, what each would answer, and what the plan would do.
+    Nothing has run.</li>
+    <li>Press Apply while the toolbar is in the dock: nobody answers. Move it to
+    the Form, change a field, and press Apply again.</li>
+    <li>Focus <em>Next room</em> and press <kbd>Enter</kbd> repeatedly. The
+    toolbar hops through the rooms and your focus stays on the button.</li>
+    <li>In the Board, Apply reaches two scopes: the card ticks itself with
+    <code>continue</code> and the board tallies with <code>consume</code>. Up and
+    Down move the card with the toolbar inside it.</li>
+    <li>In the Board, press Remove. The card's own scope hands the toolbar back
+    to the dock first, then the board removes the card, as one plan in that
+    order. Focus stays on Remove.</li>
+    <li>Press the × on any card. It is a control like any other, and the same
+    two scopes answer it.</li>
+  </ol>
+
+  <div id="demo"></div>
+
+  <h2>Limits</h2>
+  <p>A refusal here is a plan too: a <code>consume</code> with a status effect
+  and no operations. That is this page's convention, not a library rule.</p>
+  <p>Focus survives a move where the browser has <code>moveBefore</code>. On
+  the fallback path a moved button loses its focus, and the third and fifth
+  items above will not hold.</p>
+  <p>The rehearsal catches a write that goes through a region, which is what
+  the guard covers. An interpreter that calls <code>node.remove()</code> is a
+  bug it cannot see, and the same is true when <code>intent</code> runs.</p>
+  <p>The dialog is a confirmation panel, not a modal. Nothing traps focus.</p>
+
+  <p><a href="../README.md">Back to the examples index</a></p>
+</main>
+
+<script type="module">
+  import { mountToolbarDemo } from './main.js';
+  mountToolbarDemo(document.getElementById('demo'));
+</script>
+</body>
+</html>

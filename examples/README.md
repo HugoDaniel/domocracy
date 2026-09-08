@@ -1,7 +1,7 @@
 # Examples
 
-Two runnable pages, each using the library from this checkout through an import
-map. No build step, no dependencies, no bundler.
+Three runnable pages, each using the library from this checkout through an
+import map. No build step, no dependencies, no bundler.
 
 ## Run them
 
@@ -13,6 +13,7 @@ python3 -m http.server 8000
 
 - `http://localhost:8000/examples/navigation/` for the navigation components
 - `http://localhost:8000/examples/canvas-history/` for the canvas, undo and replay
+- `http://localhost:8000/examples/toolbar/` for one toolbar whose buttons mean what the room around them says
 
 Each page maps `domocracy` and `domocracy/intent` to the modules beside this
 directory:
@@ -64,6 +65,28 @@ above it returns a plan carrying one effect and no operations, the effect asks
 the document to change, the document notifies, and the notification updates the
 canvas region and the controls. Nothing is drawn from inside an interpreter.
 
+### `toolbar/`: one toolbar, four rooms
+
+A toolbar with six buttons and no handler that knows what any of them does.
+Each button raises the intent in its `data-intent`, and the scope of the room
+the toolbar is in answers: Apply commits a form, confirms a dialog, or ticks a
+card. Moving the toolbar to another room changes what the same buttons mean,
+and the button that asked for the move keeps its focus through it.
+
+- `toolbar.js` is the component: the buttons, one tab stop and the arrow keys.
+- `rooms.js` is the four rooms, each a scope over a section with a slot for
+  the toolbar. A board card is a scope inside the board's, so an intent from a
+  card visits two rooms and the plan carries both contributions in order.
+- `scopes.js` is `room`, which is `scope` with a name, and `rehearse`, which
+  walks the route `intent` would take, asks the same interpreters under the
+  same guard, and runs nothing.
+- `main.js` is the page: the dock, the travel between rooms as intents the
+  page's own scope answers, the status effect, and the two panels.
+
+Read it for a control that has no meaning of its own, for a plan read before it
+runs, and for a sequence whose order matters: a card that is removed hands the
+toolbar back to the dock in the operation before the one that removes it.
+
 ## What these examples do not claim
 
 **Undo is not a domocracy feature.** The library has five operations and no
@@ -85,6 +108,10 @@ where none exists.
 the native order and Escape closes the nearest open group. There is no arrow-key
 menu system and no application menu role.
 
+**A rehearsal is not a sandbox.** It sets the same guard `intent` sets, which
+catches a write through a region and nothing else. An interpreter that writes
+through the platform's own methods is a bug in both.
+
 ## Tests
 
 The parts that are values run under Node, and the parts that need a browser run
@@ -92,7 +119,7 @@ in headless Chrome, both from the repository root:
 
 ```sh
 npm run test:pure      # includes tests/pure/examples.test.mjs
-npm run test:browser   # includes tests/examples.test.js
+npm run test:browser   # includes tests/examples.test.js and tests/toolbar.test.js
 ```
 
 The pure suite covers commit validation, immutable snapshots, no-ops, the undo
