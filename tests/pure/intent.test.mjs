@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { op, region } from '../../domocracy.js';
 import { scope, intent, effect } from '../../intent.js';
-import { element, documentTree, recorder } from './tree.mjs';
+import { element, documentTree, recorder, text, fragment } from './tree.mjs';
 
 // A room in a document, with a region inside it and a control to raise from.
 function room(adapter = recorder()) {
@@ -187,5 +187,187 @@ test('an interpreter cannot write, and an effect runs after the operations', () 
   assert.deepEqual(seen, [1], 'the effect saw the operations already applied');
   assert.equal(result.effects[0].status, 'done');
   off();
+  here.dispose();
+});
+
+test('a scope owns an element once, an intent type once, and an effect type once', () => {
+  const { host, control } = room();
+  const here = scope(host);
+  assert.throws(() => scope(host), /already has a scope/);
+  const off = here.handle('edit', () => plan());
+  assert.throws(() => here.handle('edit', () => plan()), /already has an interpreter here/);
+  off();
+  off();   // the interpreter is already gone, and removing it again takes nothing
+  here.handle('edit', () => ({ disposition: 'consume' }));
+  assert.equal(intent(control, 'edit').disposition, 'consumed', 'the type is free again');
+  const stop = effect('save', () => 'saved');
+  assert.throws(() => effect('save', () => 'other'), /already has an adapter/);
+  stop();
+  stop();
+  effect('save', () => 'the type is free again')();
+  here.dispose();
+});
+
+test('an intent is raised from an element in the document, and never from inside an interpreter', () => {
+  const { host, control } = room();
+  const here = scope(host);
+  assert.throws(() => intent(null, 'edit'), TypeError, 'no source at all');
+  assert.throws(() => intent(text('go', control), 'edit'), TypeError, 'a node that is not an element');
+  assert.throws(() => intent(element('span'), 'edit'), TypeError, 'an element in no document');
+  here.handle('nested', () => { intent(control, 'edit'); });
+  assert.throws(() => intent(control, 'nested'), /no intents while interpreting/);
+  here.dispose();
+});
+
+test('an interpreter answers with one of three dispositions, and a passing plan proposes nothing', () => {
+  const { host, control, list } = room();
+  const here = scope(host);
+  here.handle('bad', () => ({ disposition: 'maybe' }));
+  assert.throws(() => intent(control, 'bad'), /returned the disposition "maybe"/);
+  here.handle('operations', () => ({ disposition: 'pass', operations: [op.clear(list.container)] }));
+  assert.throws(() => intent(control, 'operations'), /a passing plan proposed operations/);
+  here.handle('effects', () => ({ disposition: 'pass', effects: [{ type: 'save' }] }));
+  assert.throws(() => intent(control, 'effects'), /a passing plan proposed effects/);
+  // A plan that passes and proposes nothing is what passing looks like, and so
+  // are the two ways of answering with no plan at all.
+  here.handle('empty', () => ({ disposition: 'pass', operations: [], effects: [] }));
+  here.handle('nothing', () => null);
+  here.handle('quiet', () => undefined);
+  for (const type of ['empty', 'nothing', 'quiet']) {
+    const result = intent(control, type);
+    assert.equal(result.disposition, 'passed');
+    assert.deepEqual(result.trace.map(step => step.disposition), ['pass'], type);
+    assert.equal(result.operations.length, 0);
+  }
+  assert.equal(intent(control, 'unhandled').trace.length, 0, 'a scope with no interpreter for the type answers nothing');
+  here.dispose();
+});
+
+test('a plan that moves a node then names it hands it to the region it lands in', () => {
+  const { host, control, list } = room(rendering('A'));
+  const other = region(element('ul'), rendering('B'), { items: [] });
+  host.append(other.container);
+  list.insert([{ name: 'a' }]);
+  const a = list.nodes[0];
+  const here = scope(host);
+  here.handle('edit', () => plan(op.move(a, other.container, null), op.update(a, 'fresh')));
+  intent(control, 'edit');
+  assert.equal(a.parentNode, other.container);
+  assert.equal(a.rendered, 'B:fresh', 'the region it landed in rendered the update');
+  assert.deepEqual(other.items, ['fresh']);
+  here.dispose();
+});
+
+test('a plan that clears the region an earlier operation moved a node into is refused', () => {
+  const { host, control, list } = room();
+  const other = region(element('ul'), recorder());
+  host.append(other.container);
+  list.insert([{ name: 'a' }]);
+  const a = list.nodes[0];
+  const here = scope(host);
+  here.handle('edit', () => plan(op.move(a, other.container, null), op.clear(other.container), op.update(a, 'fresh')));
+  // The clear empties the region the move put the node in, so by the third
+  // operation the node is nowhere, and the plan changes nothing.
+  assert.throws(() => intent(control, 'edit'), /operation 2 \(update\) names a container with no region/);
+  assert.equal(a.parentNode, list.container, 'the move never ran');
+  here.dispose();
+});
+
+test('a plan may carry a remove of nothing, which runs nothing', () => {
+  const { host, control, list } = room();
+  list.insert([{ name: 'a' }]);
+  const a = list.nodes[0];
+  const here = scope(host);
+  const seen = [];
+  const off = list.observe(group => seen.push(group[0].op));
+  here.handle('edit', () => plan(op.remove([]), op.update(a, 'fresh')));
+  const result = intent(control, 'edit');
+  assert.equal(result.operations.length, 2, 'the plan says it, and the region never hears it');
+  assert.deepEqual(seen, ['update']);
+  assert.equal(a.data, 'fresh');
+  off();
+  here.dispose();
+});
+
+test('a plan that removes nodes from two containers is refused as written', () => {
+  const { host, control, list } = room();
+  const other = region(element('ul'), recorder());
+  host.append(other.container);
+  list.insert([{ name: 'a' }, { name: 'b' }]);
+  other.insert([{ name: 'o' }]);
+  const [a, b] = [list.nodes[0], list.nodes[1]];
+  const here = scope(host);
+  here.handle('edit', () => plan(op.update(a, 1), op.remove([b, other.nodes[0]])));
+  assert.throws(() => intent(control, 'edit'), /operation 1 removes nodes from more than one container/);
+  assert.equal(a.data, undefined, 'the operation before it never ran');
+  here.dispose();
+});
+
+test('an observer that moves a node out of every region fails the operation that names it', () => {
+  const { host, control, list } = room();
+  const loose = element('ul');
+  list.insert([{ name: 'a' }, { name: 'b' }]);
+  const [a, b] = [list.nodes[0], list.nodes[1]];
+  const off = list.observe(group => { if (group[0].entity === a) loose.append(b); });
+  const here = scope(host);
+  here.handle('edit', () => plan(op.update(a, 1), op.update(b, 2)));
+  let error = null;
+  try { intent(control, 'edit'); } catch (thrown) { error = thrown; }
+  assert.match(error.message, /operation 1 \(update\) names a container with no region/);
+  assert.equal(error.committed, 1, 'the first update ran');
+  assert.equal(b.data, undefined);
+  off();
+  here.dispose();
+});
+
+test('an effect with no adapter fails, so does one that throws, and the next still runs', () => {
+  const { host, control } = room();
+  const here = scope(host);
+  const seen = [];
+  const off = effect('bad', () => { throw new Error('the effect failed'); });
+  const stop = effect('good', request => { seen.push(request.payload); return 'ok'; });
+  here.handle('edit', () => ({
+    disposition: 'consume',
+    effects: [{ type: 'missing' }, { type: 'bad' }, { type: 'good', payload: 'last' }],
+  }));
+  const result = intent(control, 'edit');
+  assert.deepEqual(result.effects.map(done => done.status), ['failed', 'failed', 'done']);
+  assert.match(result.effects[0].error.message, /no adapter for missing/);
+  assert.match(result.effects[1].error.message, /the effect failed/);
+  assert.equal(result.effects[2].result, 'ok');
+  assert.deepEqual(seen, ['last'], 'a failure before it did not stop it');
+  off();
+  stop();
+  here.dispose();
+});
+
+test('a plan that removes a node with no container is refused', () => {
+  const { host, control, list } = room();
+  const held = fragment(), stray = element('li');
+  held.append(stray);
+  list.insert([{ name: 'a' }]);
+  const here = scope(host);
+  here.handle('edit', () => plan(op.update(list.nodes[0], 'fresh'), op.remove([stray])));
+  // The node has a parent, so the dry run lets the removal through, and that
+  // parent is not an element, so there is no container for a region to be over.
+  assert.throws(() => intent(control, 'edit'), /operation 1 \(remove\) names a container with no region/);
+  assert.equal(list.nodes[0].data, undefined, 'the operation before it never ran');
+  here.dispose();
+});
+
+test('a plan may remove a node and then move it into another region', () => {
+  const { host, control, list } = room(rendering('A'));
+  const other = region(element('ul'), rendering('B'), { items: [] });
+  host.append(other.container);
+  list.insert([{ name: 'a' }]);
+  const a = list.nodes[0];
+  const here = scope(host);
+  here.handle('edit', () => plan(op.remove([a]), op.move(a, other.container, null)));
+  intent(control, 'edit');
+  // By the move the node is nowhere, so the region it lands in is the one that
+  // executes it, and the node arrives the way any node from outside does.
+  assert.equal(a.parentNode, other.container);
+  assert.equal(list.length, 0);
+  assert.deepEqual(other.items, [undefined], 'the mirror only ever names its own region');
   here.dispose();
 });

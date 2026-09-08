@@ -365,3 +365,74 @@ test('no region writes while an interpreter runs', () => {
   }
   assert.equal(list.insert(specs('a')).length, 1);
 });
+
+test('a node moved out to a container with no region is dropped from the mirror', () => {
+  const list = region(element('ul'), recorder(), { items: [] });
+  const loose = element('ul');
+  list.insert(specs('a', 'b'));
+  const a = list.nodes[0];
+  const seen = [];
+  list.observe(group => seen.push(group.length));
+  list.execute(op.move(a, loose, null));
+  assert.equal(a.parentNode, loose, 'the node leaves');
+  assert.deepEqual(list.items.map(item => item.name), ['b'], 'and its item goes with it');
+  assert.deepEqual(seen, [1], 'the region that ran it hears about it, and there is nobody else to tell');
+});
+
+test('swap says the same exchange by position or by node', () => {
+  const list = region(element('ul'), recorder(), { items: [] });
+  list.insert(specs('a', 'b', 'c'));
+  const [a, , c] = list.nodes;
+  // Nodes have to ask the tree which of the two comes first, and the answer
+  // decides which move runs first. Both ways round are the one exchange.
+  list.swap(c, a);
+  assert.deepEqual(list.items.map(item => item.name), ['c', 'b', 'a']);
+  list.swap(c, a);
+  assert.deepEqual(list.items.map(item => item.name), ['a', 'b', 'c']);
+  assert.throws(() => list.swap(0, 3), RangeError, 'the second position is not a child');
+  assert.throws(() => list.swap(3, 4), RangeError, 'neither is the first');
+});
+
+test('the sugar counts a position in the region the node lands in', () => {
+  const here = region(element('ul'), recorder(), { items: [] });
+  const there = region(element('ul'), recorder(), { items: [] });
+  here.insert(specs('a', 'b', 'c'));
+  there.insert(specs('x', 'y'));
+  assert.throws(() => here.insertAt(-1, specs('z')), RangeError);
+  assert.throws(() => here.moveAt(0, -1), RangeError);
+  assert.throws(() => here.moveAt(0, 3, there), RangeError, 'a position past the destination');
+  // A transfer counts in the destination as it is; a reorder counts in this
+  // region without the node that is leaving, and the end by default.
+  here.moveAt(0, 1, there);
+  assert.deepEqual(there.items.map(item => item.name), ['x', 'a', 'y']);
+  here.moveAt(0);
+  assert.deepEqual(here.items.map(item => item.name), ['c', 'b']);
+  here.updateAt(1, 'fresh');
+  assert.deepEqual(here.items, [{ name: 'c' }, 'fresh']);
+  // The position one past the last child is the end, which is an insert with no
+  // anchor rather than a range error.
+  here.insertAt(2, specs('z'));
+  assert.deepEqual(here.items.map(item => item.name ?? item), ['c', 'fresh', 'z']);
+  assert.equal(here.at(element('li')), null, 'an element outside the region is in none of its children');
+});
+
+test('ownerOf answers null for the operations no region owns', () => {
+  const loose = element('ul'), stray = element('li'), detached = element('li');
+  loose.append(stray);
+  assert.equal(ownerOf(op.update(detached, 1)), null, 'a node that is nowhere');
+  assert.equal(ownerOf(op.move(detached, loose, null)), null, 'nowhere, into a container with no region');
+  assert.equal(ownerOf(op.remove([detached])), null, 'a remove of a node with no parent');
+  assert.equal(ownerOf(op.remove([stray])), null, 'a remove from a container with no region');
+  assert.equal(ownerOf({ op: 'nothing' }), null, 'an operation that is none of the five');
+});
+
+test('a scattered removal is divided by the container each node is in now', () => {
+  const here = region(element('ul'), recorder());
+  const there = region(element('ul'), recorder());
+  here.insert(specs('a', 'b', 'c'));
+  const [a, b, c] = here.nodes;
+  const all = op.remove([a, b, c]);
+  here.move(b, null, there);
+  const parts = divide(all);
+  assert.deepEqual(parts.map(part => part.entities), [[a, c], [b]], 'the two that stayed together are one operation');
+});

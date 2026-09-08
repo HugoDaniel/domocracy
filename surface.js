@@ -117,9 +117,13 @@ function anchor(container, node, position) {
   return (position >= from ? children[position + 1] : children[position]) ?? null;
 }
 
-// An operation on an unmanaged container still needs somewhere to render from.
+// An operation on an unmanaged container still needs somewhere to render from,
+// and only an update ever arrives here. An insert names a container that
+// `operationsFor` already found a region for, and `ownerOf` asks the same map,
+// so the create below cannot run and is left as a note rather than as code:
+//
+//   create() { throw new Error('surface: apply needs an adapter to create a control outside a region'); },
 const UNADAPTED = {
-  create() { throw new Error('surface: apply needs an adapter to create a control outside a region'); },
   update() { throw new Error('surface: apply needs an adapter to update a control outside a region'); },
 };
 
