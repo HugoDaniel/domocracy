@@ -23,7 +23,8 @@
   do. A button raises an intent, and the room the toolbar is in answers it:
   Apply commits a form, confirms a dialog, or ticks a card. Move the toolbar and
   the same buttons mean something else. Nothing in the toolbar changes, and the
-  button you were on keeps its focus.</p>
+  button you were on keeps its focus. Under each button is what it would do
+  here, in the room's own words, or why the room refuses.</p>
 
   <h2>Who owns what</h2>
   <ul>
@@ -36,17 +37,34 @@
     room.</li>
     <li><strong>The page</strong> owns the dock, the travel between rooms, the
     status line and the two panels, and it runs the effects. The rehearsal panel
-    asks the same interpreters <code>intent</code> would, under the same guard,
-    and runs none of it.</li>
+    calls <code>interpret</code>, which is the half of <code>intent</code> that
+    writes nothing, and shows the answer in place: the route outlined on the
+    rooms, and the nodes the plan names marked with what would happen to them.</li>
   </ul>
+
+  <p>Rooms answer nearest first and each adds to one plan. A room that answers
+  <code>continue</code> adds its part and lets the next room add more. A room
+  that answers <code>consume</code> adds its part and stops the collection, and
+  what the nearer rooms added stays in the plan. A room with no interpreter for
+  the intent is not asked, and a room after the one that consumed is never
+  reached. The panel names each of those four for every room on the route.</p>
+
+  <p>Two words on a plan are this page's convention and not the library's. A
+  plan that does something carries <code>meaning</code>, what it does in words.
+  A plan that refuses carries <code>refused</code>, why. The interpreter decides
+  once and explains alongside the operations; the trace keeps the plan as
+  returned; and a control reads its caption and its availability from there.
+  There is no second set of rules for what is enabled. A refused button is
+  dimmed and still raises when pressed, and what runs is the refusal.</p>
 
   <h2>What to try</h2>
   <ol class="checklist">
-    <li>Hover or focus any button before pressing it. The panel says which rooms
-    are on its route, what each would answer, and what the plan would do.
-    Nothing has run.</li>
+    <li>Hover or focus any button before pressing it. The rooms on its route are
+    outlined where they stand, the nodes the plan would touch are marked, and
+    the panel says what each room answered. Nothing has run.</li>
     <li>Press Apply while the toolbar is in the dock: nobody answers. Move it to
-    the Form, change a field, and press Apply again.</li>
+    the Form and read the captions: Apply says the form is as committed. Change
+    a field and the caption says how many fields Apply would commit.</li>
     <li>Focus <em>Next room</em> and press <kbd>Enter</kbd> repeatedly. The
     toolbar hops through the rooms and your focus stays on the button.</li>
     <li>In the Board, Apply reaches two scopes: the card ticks itself with
@@ -55,21 +73,39 @@
     <li>In the Board, press Remove. The card's own scope hands the toolbar back
     to the dock first, then the board removes the card, as one plan in that
     order. Focus stays on Remove.</li>
+    <li>Press <em>Toolbar here</em> on another card, then hover Up again. The
+    same button now marks a different card, because the request came from a
+    different place.</li>
+    <li>Lock the card the toolbar is in and hover Remove. The lock is a scope on
+    the slot, nearer than the card, and it consumes: the card and the board are
+    never reached. Unlock, hover again, and the card continues, the board
+    consumes, and the card's move stays in the plan.</li>
     <li>Press the × on any card. It is a control like any other, and the same
-    two scopes answer it.</li>
+    two scopes answer it. The lock does not, because the × is beside the slot
+    and not inside it.</li>
   </ol>
 
   <div id="demo"></div>
 
   <h2>Limits</h2>
-  <p>A refusal here is a plan too: a <code>consume</code> with a status effect
-  and no operations. That is this page's convention, not a library rule.</p>
+  <p>A refusal here is a plan too: a <code>consume</code> with a status effect,
+  a <code>refused</code> line and no operations. <code>meaning</code> and
+  <code>refused</code> are this page's conventions; the library reads neither
+  and keeps the plan they are on.</p>
+  <p>The captions are as current as the last change the page noticed, which is
+  any input or click inside the demo and any intent it raised. A change made
+  to the tree from outside, by the console say, is not noticed until the next
+  one.</p>
   <p>Focus survives a move where the browser has <code>moveBefore</code>. On
   the fallback path a moved button loses its focus, and the third and fifth
   items above will not hold.</p>
   <p>The rehearsal catches a write that goes through a region, which is what
   the guard covers. An interpreter that calls <code>node.remove()</code> is a
   bug it cannot see, and the same is true when <code>intent</code> runs.</p>
+  <p>The highlight is two attributes the page writes on the scopes of the route
+  and on the nodes a plan names, and clears before the next rehearsal. It is
+  presentation: no interpreter reads them, and a region owns the order and the
+  lifetime of its children and not their attributes.</p>
   <p>The dialog is a confirmation panel, not a modal. Nothing traps focus.</p>
 
   <p><a href="../README.md">Back to the examples index</a></p>

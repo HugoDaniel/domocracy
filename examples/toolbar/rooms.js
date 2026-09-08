@@ -6,14 +6,26 @@
 //   createDialog(options)    Apply confirms, Cancel dismisses, and then it is closed
 //   createBoard(options)     cards, each a scope of its own inside the board's
 //
-// Every room returns { element, name, slot, dispose }. A slot is a region whose
-// only child, when it has one, is the toolbar; the toolbar arrives by a move and
-// is never created here, which is why the slot adapter's create throws.
+// Every room returns { element, name, slot, slotFor, dispose }. A slot is a
+// region whose only child, when it has one, is the toolbar; the toolbar arrives
+// by a move and is never created here, which is why the slot adapter's create
+// throws. `slotFor(source)` is the slot a request from `source` means: the one
+// slot a room has, or on the board the slot of the card the request came from.
 //
 // Interpreters read the tree and return plans. None of them writes, none of them
 // knows what a toolbar is, and none of them registers an effect: `options.say`
 // builds the request for the page's status line and the page runs it. The
 // rooms are told nothing about each other.
+//
+// Two conventions on top of the library's plans, and the library reads neither:
+//
+//   meaning   what the room would do, in words, on a plan that does something
+//   refused   why the room will not, on a plan that does nothing but say so
+//
+// An interpreter decides once and explains alongside. The trace keeps the plan
+// as returned, so a control reads its label and its availability from there,
+// and nothing else decides whether a control is enabled: pressing a refused
+// control raises all the same, and the plan it gets is the refusal.
 import { on, op, region } from 'domocracy';
 import { raise, room } from './scopes.js';
 
@@ -34,6 +46,7 @@ function slotIn(parent, label) {
   return slot;
 }
 
+let headings = 0;
 function section(kind, name) {
   const host = element('section', 'room');
   host.dataset.room = kind;
@@ -43,10 +56,16 @@ function section(kind, name) {
   host.append(heading);
   return host;
 }
-let headings = 0;
 
-const consume = (operations, effects) => ({ disposition: 'consume', operations, effects });
-const refuse = effect => ({ disposition: 'consume', effects: [effect] });
+// The two plan shapes of this example, given the room's `say`.
+//   act(meaning, operations, effects)   a consume that does something and says what
+//   refuse(text)                        a consume that only says why not
+const plans = say => ({
+  act: (meaning, operations, effects = []) => ({ disposition: 'consume', meaning, operations, effects }),
+  refuse: text => ({ disposition: 'consume', refused: text, effects: [say(text)] }),
+});
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // ------------------------------------------------------------------- form
 
@@ -54,6 +73,7 @@ const refuse = effect => ({ disposition: 'consume', effects: [effect] });
 // field is its input's defaultValue, so the form's whole state is in the DOM and
 // "dirty" is a comparison the interpreter can make.
 export function createForm({ say }) {
+  const { act, refuse } = plans(say);
   const host = section('form', 'Form');
   const fields = element('div', 'fields');
   fields.dataset.label = 'the fields';
@@ -97,32 +117,33 @@ export function createForm({ say }) {
   const inputs = () => Array.from(fields.querySelectorAll('input'));
   const dirty = () => inputs().filter(input => input.value !== input.defaultValue);
   const fieldOf = input => input.closest('.field');
-  const plural = n => `${n} field${n === 1 ? '' : 's'}`;
 
   const here = room(host, 'Form', {
     'ui:apply': () => {
       const [name, email] = inputs();
-      if (name.value.trim() === '') return refuse(say('The form refused: the name is empty.'));
-      if (!email.value.includes('@')) return refuse(say('The form refused: the email needs an @.'));
+      if (name.value.trim() === '') return refuse('The name is empty.');
+      if (!email.value.includes('@')) return refuse('The email needs an @.');
       const changed = dirty();
-      if (changed.length === 0) return refuse(say('Nothing to apply: the form is as committed.'));
-      return consume(
+      if (changed.length === 0) return refuse('The form is as committed.');
+      return act(
+        `Commit ${plural(changed.length, 'changed field')}`,
         [...changed.map(input => op.update(fieldOf(input), { commit: true })),
           op.update(readout.firstElementChild, { name: name.value, email: email.value })],
-        [say(`The form committed ${plural(changed.length)}.`)],
+        [say(`The form committed ${plural(changed.length, 'field')}.`)],
       );
     },
     'ui:cancel': () => {
       const changed = dirty();
-      if (changed.length === 0) return refuse(say('Nothing to cancel: the form is clean.'));
-      return consume(
+      if (changed.length === 0) return refuse('The form is clean.');
+      return act(
+        `Revert ${plural(changed.length, 'changed field')}`,
         changed.map(input => op.update(fieldOf(input), { value: input.defaultValue })),
-        [say(`The form reverted ${plural(changed.length)}.`)],
+        [say(`The form reverted ${plural(changed.length, 'field')}.`)],
       );
     },
   });
 
-  return { element: host, name: 'Form', get slot() { return slot; }, dispose() { here.dispose(); host.remove(); } };
+  return { element: host, name: 'Form', get slot() { return slot; }, slotFor: () => slot, dispose() { here.dispose(); host.remove(); } };
 }
 
 // ---------------------------------------------------------------- listbox
@@ -130,6 +151,7 @@ export function createForm({ say }) {
 // A single-select listbox. Selection is aria-selected on the option, so it is
 // read from the tree like everything else, and the focusable option follows it.
 export function createListbox({ say }) {
+  const { act, refuse } = plans(say);
   const host = section('listbox', 'Listbox');
   const list = element('ul', 'options');
   list.setAttribute('role', 'listbox');
@@ -196,31 +218,35 @@ export function createListbox({ say }) {
   const here = room(host, 'Listbox', {
     'ui:up': () => {
       const option = selected();
-      if (option === null) return refuse(say('Select an option first.'));
-      if (option.previousElementSibling === null) return refuse(say(`${option.textContent} is already first.`));
-      return consume([op.move(option, list, option.previousElementSibling)], [say(`Moved ${option.textContent} up.`)]);
+      if (option === null) return refuse('Select an option first.');
+      if (option.previousElementSibling === null) return refuse(`${option.textContent} is already first.`);
+      return act(`Move ${option.textContent} up`, [op.move(option, list, option.previousElementSibling)], [say(`Moved ${option.textContent} up.`)]);
     },
     'ui:down': () => {
       const option = selected();
-      if (option === null) return refuse(say('Select an option first.'));
+      if (option === null) return refuse('Select an option first.');
       const next = option.nextElementSibling;
-      if (next === null) return refuse(say(`${option.textContent} is already last.`));
-      return consume([op.move(option, list, next.nextElementSibling)], [say(`Moved ${option.textContent} down.`)]);
+      if (next === null) return refuse(`${option.textContent} is already last.`);
+      return act(`Move ${option.textContent} down`, [op.move(option, list, next.nextElementSibling)], [say(`Moved ${option.textContent} down.`)]);
     },
     'ui:remove': () => {
       const option = selected();
-      if (option === null) return refuse(say('Select an option first.'));
+      if (option === null) return refuse('Select an option first.');
       // The neighbour takes the selection in the same group, so the list never
       // shows a moment with nothing selected.
       const heir = option.nextElementSibling ?? option.previousElementSibling;
       const operations = heir === null ? [] : [op.update(heir, { selected: true })];
       operations.push(op.remove([option]));
-      return consume(operations, [say(`Removed ${option.textContent}${heir === null ? '' : `; ${heir.textContent} is selected`}.`)]);
+      return act(
+        `Remove ${option.textContent}${heir === null ? '' : ` and select ${heir.textContent}`}`,
+        operations,
+        [say(`Removed ${option.textContent}${heir === null ? '' : `; ${heir.textContent} is selected`}.`)],
+      );
     },
     'ui:cancel': () => {
       const option = selected();
-      if (option === null) return refuse(say('Nothing is selected.'));
-      return consume([op.update(option, { selected: false })], [say('Cleared the selection.')]);
+      if (option === null) return refuse('Nothing is selected.');
+      return act('Clear the selection', [op.update(option, { selected: false })], [say('Cleared the selection.')]);
     },
   });
 
@@ -228,6 +254,7 @@ export function createListbox({ say }) {
     element: host,
     name: 'Listbox',
     get slot() { return slot; },
+    slotFor: () => slot,
     dispose() { for (const off of offs) off(); here.dispose(); host.remove(); },
   };
 }
@@ -243,6 +270,7 @@ const VERDICTS = {
 };
 
 export function createDialog({ say }) {
+  const { act, refuse } = plans(say);
   const host = section('dialog', 'Dialog');
   const question = element('p', 'question', 'Archive 3 files? They can be restored for 30 days.');
   const verdict = element('p', 'verdict');
@@ -267,17 +295,17 @@ export function createDialog({ say }) {
   line.insert([{ state: 'open' }]);
 
   const state = () => verdict.firstElementChild.dataset.state;
-  const close = (result, text) => () => state() !== 'open'
-    ? refuse(say('The dialog is closed. Reopen it first.'))
-    : consume([op.update(verdict.firstElementChild, { state: result })], [say(text)]);
+  const close = (result, meaning, text) => () => state() !== 'open'
+    ? refuse('The dialog is closed. Reopen it first.')
+    : act(meaning, [op.update(verdict.firstElementChild, { state: result })], [say(text)]);
 
   const off = on(host, 'click', '[data-action="reopen"]', () => line.updateAt(0, { state: 'open' }));
   const here = room(host, 'Dialog', {
-    'ui:apply': close('confirmed', 'The dialog closed: confirmed.'),
-    'ui:cancel': close('cancelled', 'The dialog closed: cancelled.'),
+    'ui:apply': close('confirmed', 'Confirm the archive', 'The dialog closed: confirmed.'),
+    'ui:cancel': close('cancelled', 'Dismiss the dialog', 'The dialog closed: cancelled.'),
   });
 
-  return { element: host, name: 'Dialog', get slot() { return slot; }, dispose() { off(); here.dispose(); host.remove(); } };
+  return { element: host, name: 'Dialog', get slot() { return slot; }, slotFor: () => slot, dispose() { off(); here.dispose(); host.remove(); } };
 }
 
 // ------------------------------------------------------------------ board
@@ -292,8 +320,15 @@ export function createDialog({ say }) {
 // takes its contents with it. That is why `ui:remove` on a card first hands
 // whatever is in its slot back to `options.home`: a plan is a sequence, and the
 // move comes before the remove, so the toolbar's button keeps its focus in the
-// dock while the card it was in goes.
+// dock while the card it was in goes. The board's `consume` that follows adds
+// the remove and stops the collection; it does not take the card's move back.
+//
+// A card can also be locked. The lock is a scope on the card's slot, so it is
+// nearer than the card to anything raised from inside the slot: it consumes
+// `ui:remove` with a refusal and the card and the board are never asked. The ×
+// beside the title is not under the slot, so the lock does not answer it.
 export function createBoard({ say, tally, home }) {
+  const { act, refuse } = plans(say);
   const host = section('board', 'Board');
   const list = element('ul', 'cards');
   list.dataset.label = 'the cards';
@@ -303,24 +338,45 @@ export function createBoard({ say, tally, home }) {
   host.append(list, add);
 
   const handles = new Map();   // card element -> its room
+  const locks = new Map();     // card element -> the room on its slot, while locked
 
   const cards = region(list, {
     create(spec) {
       const card = element('li', 'card');
       card.dataset.label = spec.title;
       card.dataset.done = 'false';
+      const head = element('div', 'card-head');
       const title = element('span', 'card-title', spec.title);
       const remove = element('button', 'card-remove', '×');
       remove.type = 'button';
       remove.dataset.intent = 'ui:remove';
       remove.setAttribute('aria-label', `Remove ${spec.title}`);
-      card.append(title, remove);
+      head.append(title, remove);
+      // Two controls of the card's own. "Toolbar here" raises the same intent
+      // the place strip raises, with the same argument; that it means this
+      // card is decided by where it is. The lock is a checkbox and not an
+      // intent, because locking is the card's own state.
+      const tools = element('div', 'card-tools');
+      const dock = element('button', 'card-dock', 'Toolbar here');
+      dock.type = 'button';
+      dock.dataset.intent = 'toolbar:go';
+      dock.dataset.room = 'board';
+      dock.setAttribute('aria-label', `Put the toolbar in ${spec.title}`);
+      const lock = element('label', 'card-lock');
+      const box = element('input');
+      box.type = 'checkbox';
+      lock.append(box, ' Lock');
+      tools.append(dock, lock);
+      card.append(head, tools);
       const slot = slotIn(card, `the slot of “${spec.title}”`);
       handles.set(card, room(card, `Card “${spec.title}”`, {
-        'ui:apply': () => ({ disposition: 'continue', operations: [op.update(card, { done: card.dataset.done !== 'true' })] }),
+        'ui:apply': () => {
+          const done = card.dataset.done !== 'true';
+          return { disposition: 'continue', meaning: `${done ? 'Tick' : 'Untick'} “${spec.title}”`, operations: [op.update(card, { done })] };
+        },
         'ui:remove': () => {
           const held = slot.firstElementChild;
-          return held === null ? null : { disposition: 'continue', operations: [op.move(held, home, null)] };
+          return held === null ? null : { disposition: 'continue', meaning: 'Hand the toolbar back to the dock', operations: [op.move(held, home, null)] };
         },
       }));
       return card;
@@ -331,6 +387,9 @@ export function createBoard({ say, tally, home }) {
 
   const titleOf = card => card.dataset.label;
   const cardOf = raised => cards.at(raised.source);
+  const slotOf = card => card.querySelector(':scope > .slot');
+
+  const unlock = card => { locks.get(card)?.dispose(); locks.delete(card); };
 
   let made = 0;
   const offs = [
@@ -338,8 +397,15 @@ export function createBoard({ say, tally, home }) {
     cards.observe(group => {
       for (const o of group) {
         if (o.op !== 'remove') continue;
-        for (const card of o.entities) { handles.get(card)?.dispose(); handles.delete(card); }
+        for (const card of o.entities) { unlock(card); handles.get(card)?.dispose(); handles.delete(card); }
       }
+    }),
+    on(list, 'change', '.card-lock input', (event, box) => {
+      const card = box.closest('.card');
+      if (!box.checked) { unlock(card); return; }
+      locks.set(card, room(slotOf(card), `Lock on “${titleOf(card)}”`, {
+        'ui:remove': () => refuse(`“${titleOf(card)}” is locked. Unlock it first.`),
+      }));
     }),
     // The × is a control like any other: it raises and the rooms decide. The
     // report comes from the list, because the × leaves with its card.
@@ -350,34 +416,43 @@ export function createBoard({ say, tally, home }) {
   const here = room(host, 'Board', {
     'ui:up': raised => {
       const found = cardOf(raised);
-      if (found === null) return refuse(say('Up moves a card, and this control is in none.'));
-      if (found.index === 0) return refuse(say(`“${titleOf(found.node)}” is already at the top.`));
-      return consume([op.move(found.node, list, list.children[found.index - 1])], [say(`Moved “${titleOf(found.node)}” up. Same card, same focus.`)]);
+      if (found === null) return refuse('This control is in no card.');
+      if (found.index === 0) return refuse(`“${titleOf(found.node)}” is already at the top.`);
+      return act(`Move “${titleOf(found.node)}” up`, [op.move(found.node, list, list.children[found.index - 1])], [say(`Moved “${titleOf(found.node)}” up. Same card, same focus.`)]);
     },
     'ui:down': raised => {
       const found = cardOf(raised);
-      if (found === null) return refuse(say('Down moves a card, and this control is in none.'));
+      if (found === null) return refuse('This control is in no card.');
       const next = found.node.nextElementSibling;
-      if (next === null) return refuse(say(`“${titleOf(found.node)}” is already at the bottom.`));
-      return consume([op.move(found.node, list, next.nextElementSibling)], [say(`Moved “${titleOf(found.node)}” down. Same card, same focus.`)]);
+      if (next === null) return refuse(`“${titleOf(found.node)}” is already at the bottom.`);
+      return act(`Move “${titleOf(found.node)}” down`, [op.move(found.node, list, next.nextElementSibling)], [say(`Moved “${titleOf(found.node)}” down. Same card, same focus.`)]);
     },
     // The card toggles itself; the board counts afterwards. Effects run after
-    // the plan's operations, so the tally sees the toggle.
+    // the plan's operations, so the tally sees the toggle. The board has no
+    // meaning to add: the card has said what happens.
     'ui:apply': () => ({ disposition: 'consume', effects: [tally()] }),
     'ui:remove': raised => {
       const found = cardOf(raised);
-      if (found === null) return refuse(say('Remove takes a card, and this control is in none.'));
-      return consume([op.remove([found.node])], [say(`Removed “${titleOf(found.node)}”.`)]);
+      if (found === null) return refuse('This control is in no card.');
+      return act(`Remove “${titleOf(found.node)}”`, [op.remove([found.node])], [say(`Removed “${titleOf(found.node)}”.`)]);
     },
   });
+
+  // The slot a request means: the card it was raised from, or the first card
+  // when it came from outside the board. A board with no cards has no slot.
+  const slotFor = source => {
+    const card = (source === null ? null : cards.at(source)?.node) ?? list.firstElementChild;
+    return card === null ? null : slotOf(card);
+  };
 
   return {
     element: host,
     name: 'Board',
-    // The toolbar goes into the first card. A board with no cards has no slot.
-    get slot() { return list.firstElementChild?.querySelector('.slot') ?? null; },
+    get slot() { return slotFor(null); },
+    slotFor,
     dispose() {
       for (const off of offs) off();
+      for (const card of locks.keys()) unlock(card);
       for (const handle of handles.values()) handle.dispose();
       handles.clear();
       here.dispose();

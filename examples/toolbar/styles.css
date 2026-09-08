@@ -58,15 +58,16 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .dock:has(.toolbar), .slot:has(.toolbar) { border-style: solid; border-color: var(--accent); }
 
-/* The toolbar itself. */
+/* The toolbar itself: the buttons, and under them what each would do here. */
 .toolbar {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  flex-direction: column;
+  gap: 0.3rem;
   padding: 0.25rem;
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 10%, var(--paper));
 }
+.tb-buttons { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .tb-button {
   padding: 0.35rem 0.7rem;
   border: 1px solid transparent;
@@ -74,7 +75,26 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   background: var(--paper);
 }
 .tb-button:hover { border-color: var(--accent); }
+.tb-button[aria-disabled='true'] { opacity: 0.5; }
 .tb-travel { margin-left: 0.5rem; border-color: var(--line); }
+.tb-captions {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.25rem 0.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.tb-caption-for { font-weight: 600; margin-right: 0.3em; }
+.tb-caption[data-state='meaning'] .tb-caption-text { color: var(--ink); }
+.tb-caption[data-state='refused'] .tb-caption-text { color: var(--warn); }
+.tb-caption[data-state='silent'] .tb-caption-text, .tb-caption[data-state='quiet'] .tb-caption-text { font-style: italic; }
+
+/* A raising control outside the toolbar shows availability the plain way. */
+[data-intent][aria-disabled='true']:not(.tb-button) { opacity: 0.5; }
 
 /* The place strip. */
 .places { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 1rem; }
@@ -134,21 +154,52 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Board */
 .cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .card {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.3rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
   padding: 0.5rem;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
 }
+.card-head { display: flex; align-items: center; gap: 0.5rem; }
+.card-title { flex: 1; }
 .card-title::before { content: '☐ '; }
 .card[data-done='true'] .card-title::before { content: '☑ '; color: var(--ok); }
 .card[data-done='true'] .card-title { text-decoration: line-through; color: var(--muted); }
 .card-remove { border: 0; background: none; padding: 0 0.3rem; font-size: 1.1rem; line-height: 1; color: var(--muted); }
 .card-remove:hover { color: var(--bad); }
-.card > .slot { grid-column: 1 / -1; min-height: 2.6rem; }
+.card-tools { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8rem; color: var(--muted); }
+.card-dock { border: 1px solid var(--line); border-radius: 999px; background: none; padding: 0.1rem 0.5rem; font-size: 0.8rem; color: var(--muted); }
+.card-dock:hover { border-color: var(--accent); color: var(--accent); }
+.card:has(> .slot > .toolbar) .card-dock { display: none; }
+.card-lock { display: inline-flex; align-items: center; gap: 0.25rem; }
+.card:has(.card-lock input:checked) { border-color: var(--warn); }
+.card > .slot { min-height: 2.6rem; }
 .card > .slot:empty { display: none; }
+
+/* The rehearsal in place: the route on the scopes, the plan on the nodes it
+   names. Both are attributes the page writes and clears. */
+[data-route] { outline: 2px dashed var(--muted); outline-offset: 3px; }
+[data-route='consume'] { outline-color: var(--ok); }
+[data-route='continue'] { outline-color: var(--accent); }
+[data-route='skipped'], [data-route='unreached'] { outline-style: dotted; outline-color: var(--line); }
+.toolbar-demo[data-route] { outline-offset: 8px; border-radius: 4px; }
+[data-affected] { transition: box-shadow 120ms; }
+[data-affected~='moves'] { box-shadow: 0 0 0 3px var(--accent); }
+[data-affected~='receives'] { background: color-mix(in srgb, var(--accent) 14%, transparent) !important; }
+[data-affected~='changes'] { box-shadow: 0 0 0 3px var(--ok); }
+[data-affected~='leaves'] { box-shadow: 0 0 0 3px var(--bad); opacity: 0.55; }
+[data-affected~='empties'] { box-shadow: 0 0 0 3px var(--bad); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted); }
+.legend-key::before { content: ''; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.3em; vertical-align: -0.05em; border-radius: 2px; }
+.legend-key[data-kind='route']::before { outline: 2px dashed var(--ok); outline-offset: -1px; }
+.legend-key[data-kind='route-off']::before { outline: 2px dotted var(--line); outline-offset: -1px; }
+.legend-key[data-kind='moves']::before { box-shadow: 0 0 0 2px var(--accent); }
+.legend-key[data-kind='receives']::before { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.legend-key[data-kind='changes']::before { box-shadow: 0 0 0 2px var(--ok); }
+.legend-key[data-kind='leaves']::before { box-shadow: 0 0 0 2px var(--bad); }
 
 /* The status line and the panels. */
 .status { min-height: 1.5em; margin: 1rem 0; color: var(--muted); }
@@ -163,6 +214,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .answer[data-state='error'] { border-color: var(--bad); }
 .answer[data-state='skipped'], .answer[data-state='unreached'] { color: var(--muted); }
 .answer-room { font-weight: 600; margin-right: 0.5rem; }
+.answer-meaning, .answer-refused { display: block; margin-top: 0.15rem; }
+.answer-meaning { color: var(--ink); }
+.answer-refused { color: var(--warn); }
 .answer-plan { margin: 0.25rem 0 0; padding-left: 1.1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
 .answer-effect { color: var(--muted); }
 .answer-error { display: block; color: var(--bad); }

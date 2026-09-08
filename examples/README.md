@@ -73,19 +73,27 @@ the toolbar is in answers: Apply commits a form, confirms a dialog, or ticks a
 card. Moving the toolbar to another room changes what the same buttons mean,
 and the button that asked for the move keeps its focus through it.
 
-- `toolbar.js` is the component: the buttons, one tab stop and the arrow keys.
+- `toolbar.js` is the component: the buttons, one tab stop and the arrow keys,
+  and under each button a caption saying what it would do here, or why the
+  room refuses, read from the plan the interpreter returned.
 - `rooms.js` is the four rooms, each a scope over a section with a slot for
   the toolbar. A board card is a scope inside the board's, so an intent from a
   card visits two rooms and the plan carries both contributions in order.
-- `scopes.js` is `room`, which is `scope` with a name, and `rehearse`, which
-  is `interpret` with the names put back: the route, the trace and the checks
-  are the library's, and the example only says which room is which.
+- `scopes.js` is `room`, which is `scope` with a name; `rehearse`, which is
+  `interpret` with the names put back; and `explain`, which reads two words
+  this example puts on its plans, `meaning` and `refused`, and is where a
+  control gets its caption and its availability. The library reads neither
+  word and keeps the plan they are on.
 - `main.js` is the page: the dock, the travel between rooms as intents the
   page's own scope answers, the status effect, and the two panels.
 
 Read it for a control that has no meaning of its own, for a plan read before it
-runs, and for a sequence whose order matters: a card that is removed hands the
-toolbar back to the dock in the operation before the one that removes it.
+runs and shown in place on the rooms and the nodes it names, and for a sequence
+whose order matters: a card that is removed hands the toolbar back to the dock
+in the operation before the one that removes it, and the board's `consume` that
+follows keeps that move. A lock on a card is a scope on its slot, nearer than
+the card, and shows the other side: a `consume` there means the card and the
+board are never asked.
 
 ## What these examples do not claim
 

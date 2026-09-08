@@ -4,6 +4,7 @@
 //   room(element, name, handlers)     a scope with a name and one interpreter per type
 //   nameOf(element)                   the name a room had on the element, even after it is gone
 //   rehearse(source, type, args)      what each room would answer, without running any of it
+//   explain(source, type, args)       what a control would do in words, or why not
 //   raise(source, type, args, from)   intent, then a bubbling report of what happened
 //   labelOf(node), describe(op)       a node and an operation as lines of text
 //
@@ -65,6 +66,36 @@ export function rehearse(source, type, args) {
   });
   return freeze({ type, args, interpreted, answers: freeze(answers), error: null });
 }
+
+// The plan conventions of this example, read back. A plan may carry `meaning`,
+// what the room would do in words, and a refusal carries `refused`, why it will
+// not. The library reads neither and the trace keeps every plan as returned,
+// so this is where a control learns its label and its availability. The
+// interpreter decided once and explained alongside; nothing here decides
+// again. What `interpret` refuses outright is refused too, with its message.
+//
+// The meanings of a route read as one sentence, nearest room first: a card that
+// hands the toolbar back and a board that removes the card say "Hand the
+// toolbar back to the dock, then remove “Ship it”".
+export function explain(source, type, args) {
+  let interpreted;
+  try {
+    interpreted = interpret(source, type, args);
+  } catch (error) {
+    return freeze({ meaning: null, refused: error.message, answered: false });
+  }
+  const meanings = [];
+  let refused = null;
+  for (const entry of interpreted.trace) {
+    const plan = entry.plan;
+    if (plan === null) continue;
+    if (typeof plan.refused === 'string') refused = plan.refused;
+    if (typeof plan.meaning === 'string') meanings.push(plan.meaning);
+  }
+  return freeze({ meaning: meanings.length === 0 ? null : sentence(meanings), refused, answered: interpreted.trace.length > 0 });
+}
+
+const sentence = meanings => meanings.map((meaning, i) => i === 0 ? meaning : meaning.replace(/^[A-Z]/, first => first.toLowerCase())).join(', then ');
 
 // Raises the intent and reports the outcome as a bubbling `intent:raised` event
 // from `from`, which defaults to the source. A plan may move or remove its own

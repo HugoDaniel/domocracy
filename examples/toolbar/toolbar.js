@@ -1,6 +1,6 @@
 // A toolbar whose buttons mean nothing on their own.
 //
-//   createToolbar()   { element, buttons, dispose }
+//   createToolbar()   { element, buttons, refresh, dispose }
 //
 // Every button carries the intent it raises in data-intent and nothing else: no
 // handler, no callback, no idea what "apply" or "up" does. Activating one raises
@@ -11,11 +11,18 @@
 // while its meaning changes.
 //
 // What the toolbar does own is being a toolbar: one tab stop, arrow keys between
-// the buttons, Home and End. That is the whole behavior in this file, and it
-// reads the buttons from the tree each time, so one that arrives later is
-// reached by the same keys without anything being registered for it.
+// the buttons, Home and End. It reads the buttons from the tree each time, so
+// one that arrives later is reached by the same keys without anything being
+// registered for it.
+//
+// It also owns saying what its buttons would do. `refresh()` asks each button,
+// through `explain`, what the rooms around it would answer, and writes the
+// answer under the button: the meaning, or why it is refused. A refused button
+// is marked aria-disabled and still raises when pressed, because the refusal
+// is the plan and the plan is what runs. Nothing here decides availability;
+// the interpreter did, once, and this only shows it.
 import { on } from 'domocracy';
-import { raise } from './scopes.js';
+import { explain, raise } from './scopes.js';
 
 export const CONTROLS = Object.freeze([
   { intent: 'ui:apply', label: 'Apply' },
@@ -28,12 +35,23 @@ export const CONTROLS = Object.freeze([
 
 const KEYS = { ArrowRight: 1, ArrowLeft: -1, Home: 0, End: 0 };
 
+let instances = 0;
+
 export function createToolbar() {
+  const prefix = `tb-${++instances}`;
   const element = document.createElement('div');
   element.className = 'toolbar';
-  element.setAttribute('role', 'toolbar');
-  element.setAttribute('aria-label', 'Toolbar');
   element.dataset.label = 'the toolbar';
+
+  const bar = document.createElement('div');
+  bar.className = 'tb-buttons';
+  bar.setAttribute('role', 'toolbar');
+  bar.setAttribute('aria-label', 'Toolbar');
+
+  // One caption per button, and the button is described by it.
+  const captions = document.createElement('ul');
+  captions.className = 'tb-captions';
+  const captionOf = new WeakMap();
 
   CONTROLS.forEach((control, i) => {
     const button = document.createElement('button');
@@ -43,17 +61,32 @@ export function createToolbar() {
     button.textContent = control.label;
     // Roving tabindex: the toolbar is one tab stop and the arrows move inside it.
     button.tabIndex = i === 0 ? 0 : -1;
-    element.append(button);
-  });
+    bar.append(button);
 
-  const buttons = () => Array.from(element.querySelectorAll('.tb-button:not([disabled])'));
+    const caption = document.createElement('li');
+    caption.className = 'tb-caption';
+    const name = document.createElement('span');
+    name.className = 'tb-caption-for';
+    name.setAttribute('aria-hidden', 'true');
+    name.textContent = control.label;
+    const text = document.createElement('span');
+    text.className = 'tb-caption-text';
+    text.id = `${prefix}-${i}`;
+    caption.append(name, text);
+    captions.append(caption);
+    captionOf.set(button, caption);
+    button.setAttribute('aria-describedby', text.id);
+  });
+  element.append(bar, captions);
+
+  const buttons = () => Array.from(bar.querySelectorAll('.tb-button:not([disabled])'));
   const rove = (to) => { for (const button of buttons()) button.tabIndex = button === to ? 0 : -1; };
 
   const offs = [
     // The toolbar raises and reports. It does not know what the answer was.
-    on(element, 'click', '.tb-button', (event, button) => raise(button, button.dataset.intent, undefined, element)),
-    on(element, 'focusin', '.tb-button', (event, button) => rove(button)),
-    on(element, 'keydown', '.tb-button', (event, button) => {
+    on(bar, 'click', '.tb-button', (event, button) => raise(button, button.dataset.intent, undefined, element)),
+    on(bar, 'focusin', '.tb-button', (event, button) => rove(button)),
+    on(bar, 'keydown', '.tb-button', (event, button) => {
       if (!(event.key in KEYS)) return;
       event.preventDefault();
       const all = buttons();
@@ -66,6 +99,22 @@ export function createToolbar() {
   return {
     element,
     get buttons() { return buttons(); },
+
+    // Each button asks what it would do here and shows it. Called by whoever
+    // knows the tree changed; the toolbar itself does not watch for that.
+    refresh() {
+      if (!element.isConnected) return;
+      for (const button of buttons()) {
+        const caption = captionOf.get(button);
+        if (caption === undefined) continue;
+        const told = explain(button, button.dataset.intent);
+        const state = told.refused !== null ? 'refused' : told.meaning !== null ? 'meaning' : told.answered ? 'quiet' : 'silent';
+        caption.dataset.state = state;
+        caption.lastElementChild.textContent = told.refused ?? told.meaning ?? (told.answered ? 'nothing to say' : 'no room answers here');
+        button.setAttribute('aria-disabled', String(told.refused !== null));
+      }
+    },
+
     dispose() {
       for (const off of offs) off();
       element.remove();
