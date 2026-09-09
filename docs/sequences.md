@@ -26,7 +26,7 @@ try {
 }
 ```
 
-A region counts its own group. `intent` counts the plan, so a plan whose fourth operation fails reports 3. `surface.apply` counts the notification. An observer that throws after its group applied reports the whole group as committed, because it did apply and it was the notification that failed.
+A region counts its own group. `intent` counts the plan, so a plan whose fourth operation fails reports 3. `surface.apply` counts the notification. An observer that throws after its group applied reports the whole group as committed, because it did apply and it was the notification that failed. A layer that runs each operation as its own group does the arithmetic with `committed(error, ran)`, which adds what it had run to what the group of one reported and returns the error to throw.
 
 The reason there is no rollback: undoing a DOM change is a DOM change, and the library has no idea whether your adapter's `create` also started a video, opened a socket or focused something. Saying how far it got and letting you ask the document what the truth is beats pretending.
 
@@ -51,7 +51,7 @@ for (const part of divide(operation)) {
 }
 ```
 
-The code above is what both `intent.js` and `surface.js` do. `ownerOf` reads the tree as it is. `divide` comes first because only a remove names more than one node, and something may have moved one of them since the operation was built: a scattered remove becomes one remove per container, each with an owner again, so no region loses its notification or keeps a mirror naming a child it no longer has.
+The code above is what both `intent.js` and `surface.js` do. `ownerOf` reads the tree as it is, or a model of it when handed a `parentOf`, which is how `intent` asks the same question of a plan as written before any of it runs. `divide` comes first because only a remove names more than one node, and something may have moved one of them since the operation was built: a scattered remove becomes one remove per container, each with an owner again, so no region loses its notification or keeps a mirror naming a child it no longer has.
 
 Without `divide`, `null` from `ownerOf` means two things that must not share a fallback: an operation on a container with no region, which you may well handle yourself, and one whose nodes no longer share a container, which you must not.
 

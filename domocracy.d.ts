@@ -59,6 +59,13 @@ export interface RegionOptions<S = unknown> {
 
 export type Off = () => void;
 
+/**
+ * Where a node is: its parent, or null. The tree as it is by default, or a model
+ * of it, which is what the dry run hands to `check` and what `ownerOf` and
+ * `divide` accept in place of the tree.
+ */
+export type ParentOf = (node: Node) => Node | null;
+
 /** Receives every committed group, in order. */
 export type Observer<S = unknown, D = unknown> = (group: Group<S, D>, region: Region<S, D>) => void;
 
@@ -109,11 +116,11 @@ export function regionOf<S = unknown, D = unknown>(container: Element): Region<S
  * unmanaged container, and the regions involved lose both their notification and
  * their mirror's account of the children they no longer have.
  */
-export function divide<S = unknown, D = unknown>(o: Operation<S, D>): Operation<S, D>[];
+export function divide<S = unknown, D = unknown>(o: Operation<S, D>, parentOf?: ParentOf): Operation<S, D>[];
 
 /**
- * The region that would execute one operation, read from the tree as it is:
- * the container an insert or a clear names, the container an update's or a
+ * The region that would execute one operation, read from the tree as it is or
+ * from `parentOf`: the container an insert or a clear names, the container an update's or a
  * remove's nodes are in, and for a move the region it leaves, or the one it
  * lands in when it comes from a container without a region.
  *
@@ -124,10 +131,24 @@ export function divide<S = unknown, D = unknown>(o: Operation<S, D>): Operation<
  * operation's turn comes, rather than trusting an answer taken before the
  * callbacks that are allowed to move things.
  */
-export function ownerOf<S = unknown, D = unknown>(o: Operation<S, D>): Region<S, D> | null;
+export function ownerOf<S = unknown, D = unknown>(o: Operation<S, D>, parentOf?: ParentOf): Region<S, D> | null;
 
-/** Dry runs a sequence over any containers and returns it frozen. Changes nothing. */
-export function validate<S = unknown, D = unknown>(ops: Operation<S, D> | readonly Operation<S, D>[]): Group<S, D>;
+/**
+ * Dry runs a sequence over any containers and returns it frozen. Changes
+ * nothing. `check`, when given, runs on each operation after its own checks,
+ * with `parentOf` reading the tree as the operations before it would leave it.
+ */
+export function validate<S = unknown, D = unknown>(
+  ops: Operation<S, D> | readonly Operation<S, D>[],
+  check?: (o: Operation<S, D>, index: number, parentOf: ParentOf) => void,
+): Group<S, D>;
+
+/**
+ * Sets `committed` on an error to `ran` plus whatever it already carried, and
+ * returns the error. For a layer that runs each operation of a sequence as its
+ * own group and reports how far the whole sequence got.
+ */
+export function committed(error: unknown, ran: number): unknown;
 
 /** The DOM handler: applies one validated operation through an adapter. */
 export function apply<S = unknown, D = unknown>(o: Operation<S, D>, adapter: Adapter<S, D>): void;

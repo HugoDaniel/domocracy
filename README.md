@@ -18,7 +18,7 @@ Now move that same button into a todo list. Here, Clear removes the completed it
 
 This is the idea I wanted to play with in domocracy. An element can answer requests from the controls inside it. I call that element a scope, although it is still ordinary HTML that you can find in the browser’s inspector.
 
-The search form knows about its field. The todo list knows which items are done. The button can carry on knowing very little, which seems healthy for a button.
+The search section knows about its field. The todo list knows which items are done. The button can carry on knowing very little, which seems healthy for a button.
 
 What I particularly like is being able to ask what would happen before doing it. The scope returns a plan, so I can use its answer to put a caption under Clear:
 
@@ -30,7 +30,7 @@ Untick one of those tasks and ask again:
 
 The caption comes from the same function that decides what pressing Clear will do. If there are no completed tasks, that function can explain why there is nothing to clear. I do not need to maintain another little set of rules just to explain the first one.
 
-Moving the button back beside the search field makes it ask the form again. There is no search setting to restore on the button, because it never knew it was a search button.
+Moving the button back beside the search field makes it ask the search section again. There is no search setting to restore on the button, because it never knew it was a search button.
 
 I find that a fun amount of behaviour to get out of where something lives in an HTML page.
 
@@ -40,7 +40,9 @@ The [clear example](examples/clear/) is this page. Its todo list is a section wi
 import { op } from "domocracy";
 import { scope } from "domocracy/intent";
 
-const listing = scope(todoSection);
+const todos = document.querySelector("[data-room=todos]");
+const list = todos.querySelector(".tasks");
+const listing = scope(todos);
 
 listing.handle("ui:clear", () => {
   const completed = Array.from(list.children).filter(task => task.querySelector("input").checked);
@@ -66,7 +68,7 @@ const plan = interpret(button, "ui:clear").trace[0]?.plan;
 caption.textContent = plan?.refused ?? plan?.meaning ?? "Nothing here answers Clear.";
 ```
 
-Beside the search field, the same two lines get the form's plan instead, because the walk from the button reaches the form's scope and not the list's. The example moves the button with the browser's own drag and drop, and a slot the button is dragged over asks the same question from itself, so it can say what the drop would mean before it happens. The [getting started guide](docs/getting-started.md) builds a page like this from scratch.
+Beside the search field, the same two lines get the search section's plan instead, because the walk from the button reaches that section's scope and not the list's. The example moves the button with the browser's own drag and drop, and a slot the button is dragged over asks the same question from itself, so it can say what the drop would mean before it happens. The [getting started guide](docs/getting-started.md) builds a page on the same idea from scratch: one Apply button that moves between a Draft and a Review section.
 
 ## More than one parent can have an opinion
 
@@ -86,7 +88,7 @@ This gets a little more fun with Remove. If the card holds a toolbar, removing t
 
 The example has two toolbars, A and B, and both can live in the same card. Removing that card produces this explanation:
 
-> Hand toolbar A and toolbar B back to the dock, then remove “Write the docs”.
+> Hand toolbar A and toolbar B back to the dock, then remove “Write the docs”
 
 There are two moves and a removal in the plan. The card takes care of what it holds, and the board removes its child once those moves have happened. A and B have no references to each other and do not need to arrange any of this between themselves.
 

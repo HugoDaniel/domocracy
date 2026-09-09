@@ -90,24 +90,6 @@ test('a group is validated as a whole, so a group that could not finish never st
   assert(outer.parentNode === boxes && inner.parentNode === boxes, 'neither move ran');
 });
 
-test('a single operation is checked directly, without building the group model', sandbox => {
-  const { el, region: r } = ul(sandbox);
-  r.insert(['a', 'b']);
-  const Original = globalThis.Map;
-  let built = 0;
-  globalThis.Map = class extends Original { constructor(...args) { super(...args); built++; } };
-  try {
-    r.insert(['c']);
-    r.update(el.children[0], 'A');
-    r.remove(el.children[1]);
-    equal(built, 0, 'no model for single operations');
-    r.swap(0, 1);
-    assert(built > 0, 'a group of two moves builds one');
-  } finally {
-    globalThis.Map = Original;
-  }
-});
-
 test('an adapter that throws leaves a prepared insert without a trace, and says how far a group got', sandbox => {
   let made = 0;
   const heard = [];

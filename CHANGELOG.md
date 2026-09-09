@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `validate(ops, check)`: an optional `check(operation, index, parentOf)` runs on each
+  operation of the dry run with the tree as the earlier ones would leave it.
+- `ownerOf` and `divide` take an optional `parentOf`, so a layer can ask them about a
+  model of the tree instead of the tree.
+- `committed(error, ran)`: the `committed` arithmetic for a layer that runs each
+  operation as its own group.
+
+### Changed
+- `intent` asks ownership of a plan through the core's dry run instead of a second
+  model of its own; the pre-flight and the run share one rule.
+- The single-operation fast path in the dry run is gone: every group is checked
+  against the same model.
+
 ## [1.1.0] - 2026-09-08
 
 ### Added
@@ -12,7 +28,7 @@
   (context-sensitive commands, a rehearsal panel, keyboard shortcuts, multiple
   toolbars, card locks).
 - Rewritten README around three layers — regions, scopes, surfaces — plus execution
-  and failure contracts and an API reference, with a getting-started example at the top.
+  and failure contracts, with a getting-started example at the top.
 - Pure test suite holding the library modules at 100% line/branch/function coverage;
   a browser harness for what a fake DOM can't answer (focus, pointer gestures, canvas
   pixels) in the examples.

@@ -14,7 +14,7 @@ python3 -m http.server 8000
 - `http://localhost:8000/examples/clear/` for one Clear button that means what the section around it says
 - `http://localhost:8000/examples/navigation/` for the navigation components
 - `http://localhost:8000/examples/canvas-history/` for the canvas, undo and replay
-- `http://localhost:8000/examples/toolbar/` for one toolbar whose buttons mean what the room around them says
+- `http://localhost:8000/examples/toolbar/` for two toolbars whose buttons mean what the room around them says
 
 Each page maps `domocracy` and `domocracy/intent` to the modules beside this
 directory:
@@ -86,7 +86,7 @@ above it returns a plan carrying one effect and no operations, the effect asks
 the document to change, the document notifies, and the notification updates the
 canvas region and the controls. Nothing is drawn from inside an interpreter.
 
-### `toolbar/`: one toolbar, four rooms
+### `toolbar/`: two toolbars, four rooms
 
 Two toolbars with six buttons each and no handler that knows what any of them
 does. Each button raises the intent in its `data-intent`, and the scope of the

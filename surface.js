@@ -21,9 +21,7 @@
 // a change record carries, are the editing bridge's to settle; the first real
 // binding corrects them here and leaves `domocracy.js` and `intent.js` alone.
 
-import { op, apply as handle, divide, validate, ownerOf, regionOf, guard } from './domocracy.js';
-
-const indexOf = Array.prototype.indexOf;
+import { op, apply as handle, divide, validate, ownerOf, regionOf, guard, committed } from './domocracy.js';
 
 // An attribute selector takes a quoted string, so a quote or a backslash in an
 // author's name has to survive the quoting. Nothing else needs escaping.
@@ -69,8 +67,7 @@ export function addressOf(element) {
 // means.
 export function operationsFor(surface, changes) {
   const operations = [];
-  for (let i = 0; i < changes.length; i++) {
-    const change = changes[i];
+  for (const change of changes) {
     switch (change.kind) {
       case 'value':
         for (const control of controlsFor(surface, change.address)) operations.push(op.update(control, change));
@@ -113,16 +110,13 @@ export function operationsFor(surface, changes) {
 // leaving, which is the region's own rule for a position.
 function anchor(container, node, position) {
   const children = container.children;
-  const from = indexOf.call(children, node);
+  const from = Array.prototype.indexOf.call(children, node);
   return (position >= from ? children[position + 1] : children[position]) ?? null;
 }
 
-// An operation on an unmanaged container still needs somewhere to render from,
-// and only an update ever arrives here. An insert names a container that
-// `operationsFor` already found a region for, and `ownerOf` asks the same map,
-// so the create below cannot run and is left as a note rather than as code:
-//
-//   create() { throw new Error('surface: apply needs an adapter to create a control outside a region'); },
+// An operation on an unmanaged container still needs somewhere to render from.
+// Only an update can arrive there: `operationsFor` inserts only into containers
+// it found a region for, and `ownerOf` asks the same map.
 const UNADAPTED = {
   update() { throw new Error('surface: apply needs an adapter to update a control outside a region'); },
 };
@@ -135,14 +129,10 @@ const UNADAPTED = {
 //
 // A notification is a sequence, not a set: a record may name a form an earlier
 // record created, take a position an earlier record vacated, or change a value
-// an earlier record inserted. Resolving the whole notification first would
-// answer all of those against a tree that no longer exists by the time the
-// operations run, so a record is resolved when its turn comes.
-//
-// The price is that a notification is not rejected as a whole: a record that
-// cannot run fails after the records before it have already been applied, and
-// the error's `committed` says how many operations ran. That is the core's own
-// bargain, made here for the same reason: the document has already committed,
+// an earlier record inserted, so a record is resolved when its turn comes. The
+// price is that a notification is not rejected as a whole: a record that cannot
+// run fails after the records before it have been applied, and the error's
+// `committed` says how many operations ran. The document has already committed,
 // and a surface that refuses to show a change is not more correct than one that
 // shows what it could and says where it stopped.
 //
@@ -152,24 +142,20 @@ const UNADAPTED = {
 export function apply(surface, changes, adapter = UNADAPTED) {
   if (guard.reason !== null) throw new Error(`surface: no writes while ${guard.reason}`);
   const ran = [];
-  for (let i = 0; i < changes.length; i++) {
+  for (const change of changes) {
     // Turning a record into operations, checking them and finding their regions
     // are inside the same accounting as running them: a record the surface
-    // cannot read, or one whose operations no longer check out, fails a
-    // notification whose earlier records are already applied, and the caller
-    // needs the count either way.
+    // cannot read fails a notification whose earlier records are already
+    // applied, and the caller needs the count either way.
     try {
-      const group = validate(operationsFor(surface, [changes[i]]));
-      for (let j = 0; j < group.length; j++) {
-        // One record can carry an operation per presentation of its address, and
-        // an observer of the first can move the second somewhere else, so which
-        // region executes an operation is asked when its turn comes, the same as
-        // in a plan. `divide` first, because a record that removes every
-        // presentation of an address names them as one operation and something
-        // may have moved one of them since: each of them leaves through the
+      for (const o of validate(operationsFor(surface, [change]))) {
+        // Which region executes an operation is asked when its turn comes, the
+        // same as in a plan, because an observer of one presentation can move
+        // another. `divide` first: a record that removes every presentation of
+        // an address names them as one operation, and each leaves through the
         // region it is in now. A control outside every region, a lone field in
-        // an inspector, has none and is rendered through the surface adapter.
-        for (const part of divide(group[j])) {
+        // an inspector, is rendered through the surface adapter.
+        for (const part of divide(o)) {
           const owner = ownerOf(part);
           if (owner === null) handle(part, adapter);
           else owner.execute(part);
@@ -177,10 +163,7 @@ export function apply(surface, changes, adapter = UNADAPTED) {
         }
       }
     } catch (error) {
-      // Each operation runs alone, so what a region reports counts inside its
-      // own group of one. The caller is holding the whole notification.
-      if (error instanceof Error) error.committed = ran.length + (error.committed ?? 0);
-      throw error;
+      throw committed(error, ran.length);
     }
   }
   return Object.freeze(ran);

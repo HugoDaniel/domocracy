@@ -1,4 +1,4 @@
-// Browser tests for the toolbar example: one toolbar, four rooms. What is here
+// Browser tests for the toolbar example: two toolbars, four rooms. What is here
 // needs a real tree: focus across a move, the walk through nested scopes, the
 // guard during a rehearsal and the delegated rules on a real root.
 import { op, region } from '../domocracy.js';

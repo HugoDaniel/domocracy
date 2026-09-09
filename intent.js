@@ -20,7 +20,7 @@
 // is the state, and writes nothing. The core's guard is set while they run, so
 // a region.execute or a nested intent anywhere in the page throws.
 
-import { divide, ownerOf, regionOf, validate, guard } from './domocracy.js';
+import { divide, ownerOf, validate, guard, committed } from './domocracy.js';
 
 const freeze = Object.freeze;
 const scopes = new WeakMap();   // element -> { element, interpreters }
@@ -64,78 +64,24 @@ export function effect(type, adapter) {
   return () => { if (adapters.get(type) === adapter) adapters.delete(type); };
 }
 
-// A remove of nothing is the one operation a plan may carry that runs nothing.
-const runsNothing = o => o.op === 'remove' && o.entities.length === 0;
-
-// Which region executes each operation is the core's `ownerOf`, asked when the
-// operation's turn comes. By then the plan's own earlier operations have run,
-// and so has whatever an observer or an adapter did while they ran: a plan that
-// is allowed to provoke writes cannot also assume the tree it was written
-// against. The pass below asks the same question of the plan as written. A node
-// an earlier operation of the same plan moves belongs to where it lands, so the
-// pass keeps the placement overrides the core's dry run keeps. Every operation
-// must name a container with a region: an unmanaged one has no adapter to create
-// or update with and no observers to tell. The one exception is a remove of
-// nothing, which a plan may carry and which runs nothing. This is the pre-flight
-// that lets a plan which was wrong from the start change nothing at all; what
-// actually executes each operation is `ownerOf`, asked when its turn comes.
-function ownersOf(group) {
-  const parent = group.length > 1 ? new Map() : null;
-  const cleared = group.length > 1 ? new Set() : null;   // containers an earlier clear emptied
-  const parentOf = node => parent !== null && parent.has(node) ? parent.get(node)
-    : cleared !== null && cleared.has(node.parentElement) ? null : node.parentElement;
-  const owners = new Array(group.length);
-  for (let i = 0; i < group.length; i++) {
-    const o = group[i];
-    let owner = null;
-    switch (o.op) {
-      case 'insert':
-        owner = regionOf(o.region);
-        break;
-      case 'clear':
-        // A clear empties its container, so an operation later in the plan that
-        // names one of those children names a node that will be nowhere. The
-        // core's dry run models this for structure; the same has to hold for
-        // ownership, or a plan that was invalid from the start empties a region
-        // before anything says so.
-        owner = regionOf(o.region);
-        if (cleared !== null) {
-          cleared.add(o.region);
-          for (const [node, held] of parent) if (held === o.region) parent.set(node, null);
-        }
-        break;
-      case 'update': {
-        const from = parentOf(o.entity);
-        owner = from === null ? null : regionOf(from);
-        break;
-      }
-      case 'move': {
-        // The region a node leaves executes the move, so its observers and its
-        // mirror see the node go while the destination's see it arrive. A node
-        // coming from a container without a region is the destination's to take.
-        const from = parentOf(o.entity);
-        owner = (from === null ? null : regionOf(from)) ?? regionOf(o.region);
-        if (parent !== null) parent.set(o.entity, o.region);
-        break;
-      }
-      case 'remove': {
-        // Where the nodes are is read before recording that they are gone,
-        // because this operation's own owner is the container they leave.
-        const entities = o.entities;
-        const from = entities.length === 0 ? null : parentOf(entities[0]);
-        for (let j = 1; j < entities.length; j++) {
-          if (parentOf(entities[j]) !== from) throw new RangeError(`intent: operation ${i} removes nodes from more than one container`);
-        }
-        if (parent !== null) for (let j = 0; j < entities.length; j++) parent.set(entities[j], null);
-        if (entities.length === 0) { owners[i] = null; continue; }
-        owner = from === null ? null : regionOf(from);
-        break;
-      }
-    }
-    if (owner === null) throw new RangeError(`intent: operation ${i} (${o.op}) names a container with no region`);
-    owners[i] = owner;
-  }
-  return owners;
+// Which region runs one operation, or a refusal. Every operation of a plan
+// must name a container with a region: an unmanaged one has no adapter to
+// create or update with and no observers to tell. A remove whose nodes are in
+// different containers is refused rather than divided, because a plan names
+// the nodes of one operation together. The one operation that may have no
+// owner is a remove of nothing, which runs nothing and answers null.
+//
+// `parentOf` is the tree the question is asked of. `interpret` asks it of the
+// plan as written, through the dry run's model, so a plan that is wrong from
+// the start changes nothing at all. `intent` asks again of the tree as it is
+// when each operation's turn comes, because by then the plan's earlier
+// operations have run, and so has whatever an observer or an adapter did while
+// they ran.
+function ownerFor(o, i, parentOf) {
+  if (divide(o, parentOf).length > 1) throw new RangeError(`intent: operation ${i} removes nodes from more than one container`);
+  const owner = ownerOf(o, parentOf);
+  if (owner === null && !(o.op === 'remove' && o.entities.length === 0)) throw new RangeError(`intent: operation ${i} (${o.op}) names a container with no region`);
+  return owner;
 }
 
 // One effect request through its adapter. An effect with no adapter fails with a
@@ -152,37 +98,29 @@ function run(request, raising) {
   }
 }
 
-// What one plan contributes under one heading, as a frozen copy that is the
-// plan's own to keep: the trace carries it, and an interpreter that goes on
-// using its array afterwards changes nothing here. A pass contributes nothing,
-// and a passing plan that proposes something is a mistake worth throwing for.
-function contribution(plan, disposition, of) {
-  const proposed = plan === null ? undefined : plan[of];
-  if (proposed === undefined) return NOTHING;
-  if (!Array.isArray(proposed)) throw new TypeError(`intent: a plan's ${of} must be an array`);
-  if (proposed.length === 0) return NOTHING;
-  if (disposition === 'pass') throw new TypeError(`intent: a passing plan proposed ${of}`);
-  return freeze(proposed.slice());
+// What a plan proposes under one heading, as a frozen copy that is the plan's
+// own to keep: the trace carries it, and an interpreter that goes on using its
+// array afterwards changes nothing here. A pass proposes nothing, and a passing
+// plan that proposes something is a mistake worth throwing for.
+function proposed(list, disposition, heading) {
+  if (list === undefined) return NOTHING;
+  if (!Array.isArray(list)) throw new TypeError(`intent: a plan's ${heading} must be an array`);
+  if (list.length === 0) return NOTHING;
+  if (disposition === 'pass') throw new TypeError(`intent: a passing plan proposed ${heading}`);
+  return freeze(list.slice());
 }
 
 // The half of an intent that writes nothing. The route is every scope above the
 // source, nearest first; the trace is what each scope with an interpreter for
-// the type answered, and what it contributed, until one consumed; the operations
-// are the whole sequence, dry run as one; and the ownership pass asks which
-// region would run each of them as the plan stands. What comes back is exactly
-// what `intent` would run next, frozen, and nothing has run.
-//
-// A trace entry keeps the plan as the interpreter returned it, beside the
-// frozen copies of what it contributed. The copies are what ran, or would; the
-// plan is the interpreter's own object, for whatever else it chose to say in it,
-// and it is neither copied nor frozen here.
+// the type answered and contributed, until one consumed; the operations are the
+// whole sequence, dry run as one with the owner of each asked of the plan as
+// written. What comes back is exactly what `intent` would run next, frozen, and
+// nothing has run. A trace entry keeps the plan as the interpreter returned it,
+// neither copied nor frozen, beside the frozen copies of what it contributed.
 //
 // The tree is read as it stands, so the answer is good for the tree as it
-// stands: a page that shows it asks again after anything changes, and asks
-// `intent` rather than running this result when the control is used.
-//
-// Every interpretation takes an id, raised or not, so an interpreter and an
-// adapter see one number for one intent and a rehearsal never shares its
+// stands: a page that shows it asks again after anything changes. Every
+// interpretation takes an id, raised or not, so a rehearsal never shares its
 // number with a raise.
 export function interpret(source, type, args) {
   if (guard.reason !== null) throw new Error(`interpret: no interpretation while ${guard.reason}`);
@@ -204,30 +142,28 @@ export function interpret(source, type, args) {
   let consumed = false;
   guard.reason = 'interpreting';
   try {
-    for (let i = 0; i < route.length && !consumed; i++) {
-      const interpreter = route[i].interpreters.get(type);
+    for (const { element, interpreters } of route) {
+      const interpreter = interpreters.get(type);
       if (interpreter === undefined) continue;
-      const answer = interpreter(raising, route[i].element);
-      const plan = answer === undefined || answer === null ? null : answer;
+      const plan = interpreter(raising, element) ?? null;
       const disposition = plan === null ? 'pass' : plan.disposition;
       if (disposition !== 'pass' && disposition !== 'continue' && disposition !== 'consume') {
         throw new TypeError(`intent: an interpreter for ${type} returned the disposition ${JSON.stringify(disposition)}`);
       }
-      const proposed = contribution(plan, disposition, 'operations');
-      const asked = contribution(plan, disposition, 'effects');
-      trace.push(freeze({ scope: route[i].element, disposition, plan, operations: proposed, effects: asked }));
-      for (let j = 0; j < proposed.length; j++) operations.push(proposed[j]);
-      for (let j = 0; j < asked.length; j++) effects.push(asked[j]);
-      consumed = disposition === 'consume';
+      const ops = proposed(plan?.operations, disposition, 'operations');
+      const asked = proposed(plan?.effects, disposition, 'effects');
+      trace.push(freeze({ scope: element, disposition, plan, operations: ops, effects: asked }));
+      operations.push(...ops);
+      effects.push(...asked);
+      if (disposition === 'consume') { consumed = true; break; }
     }
   } finally {
     guard.reason = null;
   }
-  // One dry run over the whole sequence, whatever regions it touches, and one
-  // pass over the plan as written. A failure in either refuses the intent
-  // before anything could run.
-  const group = validate(operations);
-  ownersOf(group);
+  // One dry run over the whole sequence, whatever regions it touches, with the
+  // owner of each operation asked of the plan as written. A failure in either
+  // refuses the intent before anything could run.
+  const group = validate(operations, ownerFor);
   return freeze({
     id,
     source,
@@ -257,32 +193,19 @@ export function intent(source, type, args) {
   const group = interpreted.operations;
   for (let i = 0; i < group.length; i++) {
     try {
-      if (runsNothing(group[i])) continue;
-      // A plan names the nodes of one operation together, so a remove whose
-      // nodes something has scattered since is refused rather than divided: the
-      // pre-flight refuses the same thing in the plan as written, and this is
-      // the same rule asked again of the tree as it is.
-      if (divide(group[i]).length > 1) throw new RangeError(`intent: operation ${i} removes nodes from more than one container`);
-      const owner = ownerOf(group[i]);
-      if (owner === null) throw new RangeError(`intent: operation ${i} (${group[i].op}) names a container with no region`);
-      owner.execute(group[i]);
+      const owner = ownerFor(group[i], i);
+      if (owner !== null) owner.execute(group[i]);
     } catch (error) {
-      // Each operation runs as a group of one, so the index that region reports
-      // counts inside that group. The caller is holding the whole plan, so the
-      // number it needs is how many of the plan's operations are committed.
-      if (error instanceof Error) error.committed = i + (error.committed ?? 0);
-      throw error;
+      throw committed(error, i);
     }
   }
-  const requests = interpreted.effects;
-  const done = new Array(requests.length);
-  for (let i = 0; i < requests.length; i++) done[i] = run(requests[i], interpreted);
+  const effects = interpreted.effects.map(request => run(request, interpreted));
   return freeze({
     id: interpreted.id,
     disposition: interpreted.disposition,
     route: interpreted.route,
     trace: interpreted.trace,
     operations: group,
-    effects: freeze(done),
+    effects: freeze(effects),
   });
 }

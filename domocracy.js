@@ -26,7 +26,6 @@
 // lookups they can avoid.
 
 const freeze = Object.freeze;
-const indexOf = Array.prototype.indexOf;
 const COMPOSED = { composed: true };
 const isSection = typeof HTMLTableSectionElement !== 'undefined'
   ? node => node instanceof HTMLTableSectionElement
@@ -60,58 +59,25 @@ export const op = {
   clear: (region) => freeze({ op: 'clear', region }),
 };
 
-// What every operation must be true of, once. `parentOf` and `inside` are the
-// model it is checked against: the live tree for a single operation, and the
-// placement overrides of a group for the rest. Nothing here reads or writes
-// anything else, so given the same model it gives the same answer and leaves no
-// trace, and it throws before anything changes.
-function step(o, parentOf, inside) {
-  switch (o.op) {
-    case 'insert':
-      if (!Array.isArray(o.specs)) throw new TypeError('insert: specs must be an array');
-      break;
-    case 'move':
-      if (o.entity === o.before) throw new RangeError('move: entity and before are the same node');
-      if (inside(o.region, o.entity)) throw new RangeError('move: region is inside the entity');
-      break;
-    case 'update':
-    case 'clear':
-      return;
-    case 'remove':
-      for (let i = 0; i < o.entities.length; i++) if (parentOf(o.entities[i]) === null) throw new RangeError('remove: entity has no parent');
-      return;
-    default:
-      throw new TypeError(`unknown operation ${o.op}`);
-  }
-  // insert and move are the two that place a node before an anchor, and the
-  // anchor has to be a child of the region they name.
-  if (o.before !== null && parentOf(o.before) !== o.region) throw new RangeError(`${o.op}: before is not a child of the region`);
-}
-
-// The live tree is the model a single operation is checked against.
-const parentNow = node => node.parentNode;
-const insideNow = (node, ancestor) => ancestor.contains(node);
-
-// Checking each operation of a group against the tree as it is now cannot see a
+// A group is checked against a model of the tree, not the tree itself.
+// Checking each operation against the tree as it is now cannot see a
 // dependency between two of them: remove an anchor, then insert before it, and
 // both checks pass while the second insertBefore throws with the group half
-// applied. So a group of more than one operation is checked against a model
-// instead, whose whole state is a map of placement overrides on top of the live
-// tree. Each operation is checked as the earlier ones would have left things,
-// then records what it would change. The nodes an insert would create do not
-// exist yet, so nothing later in the group can name them.
-function dryRun(group) {
-  if (group.length === 1) return step(group[0], parentNow, insideNow);
-  if (group.length === 0) return;
+// applied. The model is a map of placement overrides on top of the live tree.
+// Each operation is checked as the earlier ones would have left things, then
+// records what it would change. The nodes an insert would create do not exist
+// yet, so nothing later in the group can name them.
+//
+// `check`, when given, runs on every operation after its own checks and before
+// it is recorded, with `parentOf` reading the model, so a layer can ask its own
+// questions of the tree as the group would leave it. `intent.js` asks which
+// region would own each operation.
+function dryRun(group, check) {
   const parent = new Map();    // node -> Element | null, as earlier operations leave it
   const cleared = new Set();   // containers an earlier clear emptied
   const parentOf = node => parent.has(node) ? parent.get(node) : cleared.has(node.parentNode) ? null : node.parentNode;
-  // The walk is override-aware too, so a cycle that exists only after an earlier
-  // move of the same group is caught as well.
   const inside = (node, ancestor) => { for (let n = node; n; n = parentOf(n)) if (n === ancestor) return true; return false; };
-  for (let i = 0; i < group.length; i++) {
-    const o = group[i];
-    step(o, parentOf, inside);
+  const record = o => {
     switch (o.op) {
       case 'move': parent.set(o.entity, o.region); break;
       case 'remove': for (const entity of o.entities) parent.set(entity, null); break;
@@ -120,15 +86,46 @@ function dryRun(group) {
         for (const [node, p] of parent) if (p === o.region) parent.set(node, null);
         break;
     }
+  };
+  for (let i = 0; i < group.length; i++) {
+    const o = group[i];
+    switch (o.op) {
+      case 'insert':
+        if (!Array.isArray(o.specs)) throw new TypeError('insert: specs must be an array');
+        anchored(o, parentOf);
+        break;
+      case 'move':
+        if (o.entity === o.before) throw new RangeError('move: entity and before are the same node');
+        if (inside(o.region, o.entity)) throw new RangeError('move: region is inside the entity');
+        anchored(o, parentOf);
+        break;
+      case 'remove':
+        for (const entity of o.entities) if (parentOf(entity) === null) throw new RangeError('remove: entity has no parent');
+        break;
+      case 'update':
+      case 'clear':
+        break;
+      default:
+        throw new TypeError(`unknown operation ${o.op}`);
+    }
+    if (check !== undefined) check(o, i, parentOf);
+    record(o);
   }
+}
+
+// insert and move place a node before an anchor, and the anchor has to be a
+// child of the region they name.
+function anchored(o, parentOf) {
+  if (o.before !== null && parentOf(o.before) !== o.region) throw new RangeError(`${o.op}: before is not a child of the region`);
 }
 
 // The pure half of execute. Takes one operation or an ordered sequence of them,
 // whatever containers they touch, dry runs the whole sequence and returns it
-// frozen. `intent.js` calls this once over a plan before executing it.
-export function validate(ops) {
+// frozen. `check` goes to the dry run. `intent.js` calls this once over a plan
+// before executing it.
+export function validate(ops, check) {
   const group = Array.isArray(ops) ? freeze(ops.slice()) : freeze([ops]);
-  dryRun(group);
+  dryRun(group, check);
   return group;
 }
 
@@ -137,23 +134,17 @@ export function validate(ops) {
 export function apply(o, adapter) {
   switch (o.op) {
     case 'insert': {
-      const region = o.region, before = o.before, specs = o.specs, n = specs.length;
-      const create = adapter.create, nodes = new Array(n);
       // Every node is created before the tree is touched, so a create that
       // throws halfway leaves this operation without a trace.
-      for (let i = 0; i < n; i++) nodes[i] = create(specs[i]);
-      // insertBefore(node, null) is appendChild inside Blink, so one loop
-      // serves appending and inserting.
-      for (let i = 0; i < n; i++) region.insertBefore(nodes[i], before);
+      const nodes = o.specs.map(spec => adapter.create(spec));
+      // insertBefore(node, null) is appendChild, so one loop serves appending
+      // and inserting.
+      for (const node of nodes) o.region.insertBefore(node, o.before);
       return;
     }
     case 'move': place(o.region, o.entity, o.before); return;
     case 'update': adapter.update(o.entity, o.data); return;
-    case 'remove': {
-      const entities = o.entities;
-      for (let i = 0; i < entities.length; i++) entities[i].remove();
-      return;
-    }
+    case 'remove': for (const entity of o.entities) entity.remove(); return;
     case 'clear': o.region.textContent = ''; return;
   }
 }
@@ -163,24 +154,16 @@ export function apply(o, adapter) {
 const regions = new WeakMap();
 
 // Set while an interpreter runs, in `intent.js`. Interpreters describe what
-// should happen and return it as a plan; a write from inside one is a bug, and
-// every execute in the page refuses until the reason is cleared again.
-//
-// What that covers exactly: `Region.execute`, `interpret`, `intent` and
-// `surface.apply` read it. The exported `apply` does not, because it is the handler that takes one
-// already validated operation and is called once per operation from inside
-// execute. Nothing can cover `node.remove()` or `container.append()`, which are
-// the platform's. The guard catches the ordinary way of breaking the rule, not
-// every way.
-//
-// It says nothing about a write from an observer or an adapter while a sequence
-// is running. That is allowed: two presentations of one document are made of
-// exactly that. What it costs depends on the sequence. A group here is validated
-// once as a whole, so a write from inside it is outside what the dry run saw and
-// the operations after it are applied as they stand. A plan or a notification
-// runs each operation as its own group, so each is checked and its region found
-// when its turn comes, and a write that invalidates the rest fails it there with
-// `committed` saying how many ran.
+// should happen and return it as a plan, so a write from inside one is a bug,
+// and every execute in the page refuses until the reason is cleared again.
+// `Region.execute`, `interpret`, `intent` and `surface.apply` read it. The
+// exported `apply` does not, being the handler execute calls once per
+// operation, and nothing can cover `node.remove()` or `container.append()`,
+// which are the platform's. A write from an observer or an adapter while a
+// sequence runs is allowed. A group is validated once as a whole, so the
+// operations after such a write are applied as they stand; a plan or a
+// notification checks each operation when its turn comes, so a write that
+// invalidates the rest fails it there.
 export const guard = { reason: null };
 
 // A region may keep a mirror: one frozen item per child, in order. It is an
@@ -233,8 +216,7 @@ function mirror(items, o, position) {
         const at = position(entities[0]);
         return at === -1 ? items : freeze(items.slice(0, at).concat(items.slice(at + 1)));
       }
-      const gone = new Set();
-      for (let i = 0; i < entities.length; i++) gone.add(position(entities[i]));
+      const gone = new Set(entities.map(entity => position(entity)));
       return freeze(items.filter((item, at) => !gone.has(at)));
     }
     case 'clear': return NOTHING;
@@ -266,7 +248,7 @@ class Region {
     this.#adapter = adapter;
     // A table section keeps every row's index current for free; any other
     // container answers through the position among its children.
-    const index = isSection(container) ? node => node.sectionRowIndex : node => indexOf.call(children, node);
+    const index = isSection(container) ? node => node.sectionRowIndex : node => Array.prototype.indexOf.call(children, node);
     this.#index = index;
     // A region without a mirror allocates nothing for one. The mirror's own
     // position function refuses a node of another container, which a row index
@@ -299,13 +281,11 @@ class Region {
         const o = group[i];
         // A move is the one operation that can leave one region and land in
         // another. Which region loses the node and which gains it is decided by
-        // where the node is now, not by the region this call was made on: an
-        // earlier operation of the same group may have moved it elsewhere, and
-        // the same sequence has to mean the same thing whichever region runs it.
-        // Inserts and updates pay no lookup for any of this.
-        // A move inside this region is the common one and pays two comparisons
-        // for the check. Only a move that crosses a container boundary looks up
-        // which regions the two ends belong to.
+        // where the node is now, not by the region this call was made on, so
+        // the same sequence means the same thing whichever region runs it. A
+        // move inside this region, the common one, costs two comparisons; only
+        // one that crosses a container boundary looks up the regions at its
+        // two ends.
         if (o.op === 'move' && (o.region !== container || o.entity.parentNode !== container)) {
           const from = regions.get(o.entity.parentNode) ?? null;
           const to = regions.get(o.region) ?? null;
@@ -436,15 +416,11 @@ class Region {
     return () => { this.#observers = this.#observers.filter(other => other !== fn); };
   }
 
-  // A move this region is running on behalf of others. Either end may be null, a
-  // container with no region.
-  //
-  // Both ends being the same region is a reorder inside it, which is one change
-  // to one mirror by that mirror's own rule. Reading it as a transfer would take
-  // the item out at one position and put it back at another, both computed from
-  // the array as it was, and the second write would win: the node would be
-  // counted twice. That is only reachable when a third region runs the group,
-  // since a region reordering its own children never comes through here.
+  // A move this region runs on behalf of others. Either end may be null, a
+  // container with no region. Both ends being the same region is a reorder
+  // inside it, one change to that mirror by its own rule; read as a transfer
+  // it would count the node twice. Only a third region running the group gets
+  // here that way.
   #hand(o, from, to) {
     if (from === to) {
       const items = from === null ? null : from.#items;
@@ -472,8 +448,7 @@ class Region {
   }
 
   #deliver(group) {
-    const observers = this.#observers;
-    for (let i = 0; i < observers.length; i++) observers[i](group, this);
+    for (const observer of this.#observers) observer(group, this);
   }
 }
 
@@ -483,86 +458,70 @@ export function region(container, adapter, options) { return new Region(containe
 // how a plan built elsewhere finds the region that owns the one it names.
 export function regionOf(container) { return regions.get(container) ?? null; }
 
-// The region that would execute one operation, read from the tree as it is: the
-// container an insert or a clear names, the container an update's or a remove's
-// nodes are in, and for a move the region it leaves, or the one it lands in when
-// it comes from a container without a region.
+// The tree as it is, which is what `ownerOf` and `divide` read unless a caller
+// hands them a model of it, the way the dry run does for a group.
+const live = node => node.parentElement;
+
+// The region that would execute one operation: the container an insert or a
+// clear names, the container an update's or a remove's nodes are in, and for a
+// move the region it leaves, or the one it lands in when it comes from a
+// container without a region.
 //
-// Null when no region owns it: an unmanaged container, a node that is nowhere, a
-// remove of nothing, or a remove whose nodes are no longer in one container. The
-// last of those is not the same kind of answer as the others, and a caller that
-// means to handle an unmanaged container itself has to run the operation through
-// `divide` first, which is what both layers here do.
-//
-// Both of them ask this rather than keeping a rule of their own, because a
-// sequence that is allowed to provoke writes has to ask again for each operation
-// and two answers that drift apart are worth more trouble than the lookup costs.
-export function ownerOf(o) {
+// Null when no region owns it: an unmanaged container, a node that is nowhere,
+// a remove of nothing, or a remove whose nodes are no longer in one container.
+// The last of those is not the same kind of answer as the others, which is
+// what `divide` is for. Both layers ask this when an operation's turn comes
+// rather than keeping a rule of their own, because a sequence that is allowed
+// to provoke writes has to ask again for each operation.
+export function ownerOf(o, parentOf = live) {
   switch (o.op) {
     case 'insert':
     case 'clear':
       return regions.get(o.region) ?? null;
     case 'update':
-      return holder(o.entity);
-    case 'move': {
-      const from = holder(o.entity);
-      return from ?? regions.get(o.region) ?? null;
-    }
+      return regions.get(parentOf(o.entity)) ?? null;
+    case 'move':
+      return regions.get(parentOf(o.entity)) ?? regions.get(o.region) ?? null;
     case 'remove': {
       const entities = o.entities;
       if (entities.length === 0) return null;
-      const parent = entities[0].parentElement;
-      for (let i = 1; i < entities.length; i++) if (entities[i].parentElement !== parent) return null;
-      return parent === null ? null : regions.get(parent) ?? null;
+      const parent = parentOf(entities[0]);
+      for (let i = 1; i < entities.length; i++) if (parentOf(entities[i]) !== parent) return null;
+      return regions.get(parent) ?? null;
     }
     default:
       return null;
   }
 }
 
-const holder = node => {
-  const parent = node.parentElement;
-  return parent === null ? null : regions.get(parent) ?? null;
-};
-
-// One operation as the operations its current owners would each execute, so
-// that `ownerOf` is asked only about operations that can have one owner.
-//
-// Only a remove names more than one node, and only something that moved those
-// nodes after the operation was built can leave them in different containers,
-// so everything else is itself and the answer is the operation alone. A remove
-// that has been scattered becomes one remove per container, each of which has
-// an owner again, and none of the regions involved loses its notification or is
-// left with a mirror naming a child it no longer has.
-//
-// Without this a caller has to read `null` from `ownerOf` as two different
-// things: an operation on a container that has no region, which the caller may
-// well handle itself, and one whose nodes no longer share a container, which it
-// must not treat the same way.
-export function divide(o) {
-  const entities = o.op === 'remove' ? o.entities : null;
-  if (entities === null || entities.length < 2) return [o];
-  const parent = entities[0].parentElement;
-  let scattered = false;
-  for (let i = 1; i < entities.length && !scattered; i++) scattered = entities[i].parentElement !== parent;
-  if (!scattered) return [o];
+// One operation as the operations its current owners would each execute. Only
+// a remove names more than one node, so everything else is itself. A remove
+// whose nodes something has scattered across containers since it was built
+// becomes one remove per container, each of which has an owner again, so no
+// region loses its notification or keeps a mirror naming a child it no longer
+// has. Without this a caller has to read `null` from `ownerOf` as two things:
+// an operation on a container with no region, which it may well handle itself,
+// and one whose nodes no longer share a container, which it must not.
+export function divide(o, parentOf = live) {
+  if (o.op !== 'remove' || o.entities.length < 2) return [o];
   const each = new Map();
-  for (let i = 0; i < entities.length; i++) {
-    const held = each.get(entities[i].parentElement);
-    if (held === undefined) each.set(entities[i].parentElement, [entities[i]]); else held.push(entities[i]);
+  for (const entity of o.entities) {
+    const parent = parentOf(entity);
+    const held = each.get(parent);
+    if (held === undefined) each.set(parent, [entity]); else held.push(entity);
   }
-  return Array.from(each.values(), part => op.remove(part));
+  return each.size === 1 ? [o] : Array.from(each.values(), part => op.remove(part));
 }
 
-// CustomEvent copies its init dictionary, so one dictionary per event kind
-// serves every event. `detail` is set for the construction and cleared right
-// after, so the dictionary never keeps the last payload alive.
-const ACTION = { bubbles: true, cancelable: true, detail: null };
-function event(type, init, detail) {
-  init.detail = detail;
-  const event = new CustomEvent(type, init);
-  init.detail = null;
-  return event;
+// How far a sequence got before `error` stopped it, as `committed` on the
+// error: how many of its operations ran. A region counts its own group in
+// `execute`. A layer that runs each operation of a plan or a notification as
+// its own group counts the whole plan, so it adds what the group of one
+// reported to what it had already run, which is what this does. Returns the
+// error, to be thrown.
+export function committed(error, ran) {
+  if (error instanceof Error) error.committed = ran + (error.committed ?? 0);
+  return error;
 }
 
 // Delegated handlers. One native listener per root and event type, added the
@@ -589,10 +548,10 @@ export function on(root, type, selector, handler) {
       let target = event.target;
       if (target.nodeType !== 1) target = target.parentNode;
       if (!target || !target.closest) return;
-      for (let i = 0; i < rules.length; i++) {
-        const match = target.closest(rules[i][0]);
+      for (const [selector, handler] of rules) {
+        const match = target.closest(selector);
         if (match && root.contains(match)) {
-          rules[i][1](event, match);
+          handler(event, match);
           if (event.cancelBubble) return;
         }
       }
@@ -609,5 +568,5 @@ export function on(root, type, selector, handler) {
 // cancelable, so a handler that calls event.preventDefault() makes dispatch
 // return false, which tells the sender its action was taken up.
 export function dispatch(node, type, detail) {
-  return node.dispatchEvent(event(type, ACTION, detail));
+  return node.dispatchEvent(new CustomEvent(type, { bubbles: true, cancelable: true, detail }));
 }

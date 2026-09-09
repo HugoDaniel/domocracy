@@ -105,8 +105,8 @@ An observer may write to a region, including this one. What that costs is in [se
 
 ## The pieces underneath
 
-`validate(ops)` is the dry run on its own: it takes one operation or a sequence, over whatever containers, checks it and returns it frozen. It changes nothing.
+`validate(ops, check)` is the dry run on its own: it takes one operation or a sequence, over whatever containers, checks it and returns it frozen. It changes nothing. `check(operation, index, parentOf)`, when given, runs on each operation with `parentOf` reading the tree as the operations before it would leave it, which is how `intent` asks who would own each operation of a plan before anything runs.
 
 `apply(operation, adapter)` is the DOM handler: one already validated operation, one adapter. It is the only function here that writes to the tree.
 
-`ownerOf(operation)` answers which region would execute an operation, read from the tree as it is. `divide(operation)` answers with the operations the current owners would each execute, which matters for a remove whose nodes have been scattered since it was built. Both are there for code that runs sequences of its own, and both are described in [sequences](sequences.md).
+`ownerOf(operation)` answers which region would execute an operation, read from the tree as it is. `divide(operation)` answers with the operations the current owners would each execute, which matters for a remove whose nodes have been scattered since it was built. Both take an optional `parentOf` to read a model of the tree instead, the one `validate` hands to `check`. `committed(error, ran)` adds `ran` to the count an error carries and returns it, for a layer that runs each operation as its own group. All three are there for code that runs sequences of its own, and they are described in [sequences](sequences.md).
