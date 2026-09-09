@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>domocracy example: one Clear button, two places</title>
+<link rel="stylesheet" href="./styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "domocracy": "../../domocracy.js",
+    "domocracy/intent": "../../intent.js"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+  <h1>One Clear button, two places</h1>
+
+  <p>The Clear button below has one click handler and no idea what it clears.
+  Beside the search field, the form empties the field. In the todo list, the
+  list removes the completed tasks. Under the button is what pressing it would
+  do right now, in the words of the section that answered, or why that section
+  refuses. Drag the button from one place to the other, or use the two place
+  buttons above them.</p>
+
+  <div id="demo"></div>
+
+  <h2>What to try</h2>
+  <ol class="checklist">
+    <li>Read the caption, then press Clear. The field empties, and the caption
+    now says the field is already empty.</li>
+    <li>Type in the field. The caption names what you typed.</li>
+    <li>Drag Clear over the todo list's slot. Before you drop it, the slot
+    says what Clear would do there. Drop it, and the caption under the button
+    says the same. Untick a task and the count follows.</li>
+    <li>Press Clear. The completed tasks go, and the caption says why the
+    button is refused now. Add a task and tick it, and Clear has work again.</li>
+    <li>Drag Clear back beside the search. The same button gets the form's
+    answer again.</li>
+  </ol>
+
+  <h2>Who owns what</h2>
+  <ul>
+    <li><strong>The button</strong> raises the intent <code>ui:clear</code>
+    from itself when pressed, and that is all it does. It does not know what
+    clearing means anywhere.</li>
+    <li><strong>Each section</strong> is a scope with one interpreter for
+    <code>ui:clear</code>, which reads the section and returns a plan. The
+    search form reads its field, and the todo list reads its checkboxes.
+    Neither knows about the button or about the other section.</li>
+    <li><strong>The page</strong> owns the two slots, the drag and drop between
+    them, and the caption. The caption calls <code>interpret</code>, which asks
+    the same interpreter a press asks and runs nothing. A slot being dragged
+    over calls it too, from the slot itself, since the slot sits under the same
+    section the button would.</li>
+  </ul>
+
+  <h2>Limits</h2>
+  <p>The caption is refreshed after any input, click or drop inside the demo. A
+  change made from outside, by the console say, is not noticed until the next
+  one. A refused button is dimmed with <code>aria-disabled</code> and still
+  raises when pressed; the refusal is a plan with nothing to run, so nothing
+  happens.</p>
+  <p>The drag is the browser's own drag and drop, so it needs a pointer. The
+  two place buttons make the same move from the keyboard. Domocracy has no
+  drag and drop of its own; the drop handler calls the region's
+  <code>move</code>, as the place buttons do.</p>
+
+  <p><a href="../README.md">Back to the examples index</a></p>
+</main>
+
+<script type="module">
+  import { mountClearDemo } from './main.js';
+  mountClearDemo(document.getElementById('demo'));
+</script>
+</body>
+</html>

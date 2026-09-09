@@ -4,155 +4,73 @@ What if the DOM could have a similar logic to drag and drop, where each drop sit
 
 I like how much of drag and drop can be understood just by moving something around. Take a file over a folder and the folder can tell you whether it will accept it. Move that same file over an email and it might become an attachment. Each destination has its own use for the thing you are carrying, and ideally lets you know about it before you drop it there.
 
-I want to play with that idea for regular UI controls. Imagine an Apply button that you can put inside a form, where it applies the changes to the fields. Then take that same button and put it inside a card, where Apply now marks the card as done. The button still has the same click handler, it is still the same DOM element, and its parent gets to decide what to do with it.
+I want to play with that idea for regular UI controls. The DOM already gives us a hierarchy to work with, and events already travel through it. With domocracy I want to make more use of that surrounding structure when deciding what a control does.
 
-The DOM already gives us a hierarchy to work with, and events already travel through it. With domocracy I want to make more use of that surrounding structure when deciding what a control does. A button can ask its parents for something, and whichever parent understands the request can answer it. We can also ask what the answer would be without running it, which is where this gets a bit more interesting.
-
-There is no dragging required here (sorry, you will have to bring your own drag and drop). The thing I am borrowing is how a destination gets to interpret what arrives. A keyboard shortcut can make the same request from whatever control has focus, and the surrounding element answers in the same way.
+There is no dragging required here (sorry, you will have to bring your own drag and drop, like we do in the [clear example](examples/clear/) for example purposes). The thing I am borrowing is how a destination gets to interpret what arrives. A keyboard shortcut can make the same request from whatever control has focus, and the surrounding element answers in the same way.
 
 Domocracy is a small JS library for experimenting with this. It works with regular DOM elements and has no runtime dependencies. HTML can stay in your .html files, with CSS alongside it and JavaScript imported as ES modules. There are TypeScript declarations too.
 
-## Giving the parents something to do
+## One button, two places
 
-Let's start with a toolbar. It has its own keyboard navigation to deal with, and a row of buttons that someone will eventually press. I want to reuse it in different forms, with each form deciding what applying its fields involves.
+Imagine a button that says Clear, sitting beside a search field. Pressing it empties the field, which is about what you would expect.
 
-For this, each button carries the name of what it asks for in a `data-intent` attribute. Here is a small editor with an Apply button, and somewhere to put its caption. The title is optimistic, feel free to change it.
+Now move that same button into a todo list. Here, Clear removes the completed items. The button still has the same click handler. It asks to clear something, and the place where you put it decides what that involves.
 
-```html
-<section id="editor">
-  <label>
-    Title
-    <input name="title" value="An app that finally ships">
-  </label>
+This is the idea I wanted to play with in domocracy. An element can answer requests from the controls inside it. I call that element a scope, although it is still ordinary HTML that you can find in the browser’s inspector.
 
-  <div id="toolbar" role="toolbar" aria-label="Draft actions">
-    <button type="button" data-intent="ui:apply" aria-describedby="caption">
-      Apply
-    </button>
-    <p id="caption"></p>
-  </div>
+The search form knows about its field. The todo list knows which items are done. The button can carry on knowing very little, which seems healthy for a button.
 
-  <p id="status" role="status"></p>
-</section>
-```
+What I particularly like is being able to ask what would happen before doing it. The scope returns a plan, so I can use its answer to put a caption under Clear:
 
-The JavaScript snippets below can go in the same module, loaded after this markup. The [getting started guide](docs/getting-started.md) has the import map if you are running directly in a browser. Let's first connect the button:
+> Remove the 4 completed tasks.
 
-```js
-import { on } from "domocracy";
-import { intent } from "domocracy/intent";
+Untick one of those tasks and ask again:
 
-const toolbar = document.querySelector("#toolbar");
+> Remove the 3 completed tasks.
 
-const stopClicks = on(toolbar, "click", "button[data-intent]", (event, button) => {
-  // Ask from the button, so its parents get to answer.
-  intent(button, button.dataset.intent);
-});
-```
+The caption comes from the same function that decides what pressing Clear will do. If there are no completed tasks, that function can explain why there is nothing to clear. I do not need to maintain another little set of rules just to explain the first one.
 
-The `on` function registers a delegated handler on the toolbar, so buttons added later also get to use the same handler. `data-intent` is just an attribute we chose to read in this code; domocracy itself has no special treatment for it.
+Moving the button back beside the search field makes it ask the form again. There is no search setting to restore on the button, because it never knew it was a search button.
 
-The call to `intent` is where the button asks for something. It takes the button as its source and walks up from its parent, looking for a **scope** that knows about `ui:apply`. A scope is an element on which we have registered a function to answer that request. The function is called an **interpreter**, since it decides what Apply means here.
+I find that a fun amount of behaviour to get out of where something lives in an HTML page.
 
-For our editor, I want Apply to keep the current title as the input's default value. That only lasts for this page, but it gives us something to apply. We can read the input from inside the editor and decide whether there is a title worth keeping:
+The [clear example](examples/clear/) is this page. Its todo list is a section with a scope on it, and the scope's answer for Clear is a function like this:
 
 ```js
+import { op } from "domocracy";
 import { scope } from "domocracy/intent";
 
-const editor = document.querySelector("#editor");
-const titleInput = editor.querySelector("input[name=title]");
-const editing = scope(editor);
+const listing = scope(todoSection);
 
-editing.handle("ui:apply", () => {
-  const title = titleInput.value.trim();
-
-  if (title === "") {
-    const reason = "A title would help.";
-    return {
-      disposition: "consume",
-      refused: reason,
-      effects: [{ type: "readme.say", text: reason }],
-    };
+listing.handle("ui:clear", () => {
+  const completed = Array.from(list.children).filter(task => task.querySelector("input").checked);
+  if (completed.length === 0) {
+    return { disposition: "consume", refused: "No task is completed, so there is nothing to clear." };
   }
-
   return {
     disposition: "consume",
-    meaning: `Keep “${title}” as the title.`,
-    effects: [{ type: "readme.keep-title", title }],
+    meaning: `Remove the ${completed.length} completed tasks.`,
+    operations: [op.remove(completed)],
   };
 });
 ```
 
-The function we passed to `editing.handle` reads the title and returns an object describing what should happen. This object is the **plan**, and `consume` says that this scope has answered and we can stop asking further up the tree.
+The function above reads the list and returns a plan. `consume` says this scope has answered and nothing above it needs asking, and `operations` is what pressing Clear runs. `meaning` and `refused` are words I chose for the example; domocracy keeps them on the plan without reading them.
 
-Nothing has changed in the input yet. The plan left a request in `effects`, and we still need to say how to run it. The refusal also has an effect, so pressing Apply with an empty title can explain why it was refused:
-
-```js
-import { effect } from "domocracy/intent";
-
-const status = document.querySelector("#status");
-
-const stopKeeping = effect("readme.keep-title", ({ title }) => {
-  titleInput.value = title;
-  titleInput.defaultValue = title;
-  status.textContent = `Keeping “${title}” for this page.`;
-});
-
-const stopSaying = effect("readme.say", ({ text }) => {
-  status.textContent = text;
-});
-```
-
-Now Apply actually does something. Change the title and press it, then clear the input and try again. The editor's answer determines which effect runs. In an app, the function registered with `effect` could ask your document to save the edit.
-
-You might have noticed `meaning` and `refused` in the returned objects. These are words I chose for the example, and we will use them in a moment. They sit beside the work the interpreter proposed, so the branch that refuses an empty title also gets to say why.
-
-Now we can put another scope on a different section and give it its own answer for `ui:apply`. Moving the toolbar into that section makes its next request go through the new parent. The toolbar code above can carry on being oblivious to the whole thing, which is about the amount of responsibility I wanted to give it.
-
-There is a [complete walkthrough](docs/getting-started.md) if you want to run this sort of thing yourself. It includes the HTML and moves one Apply control between a Draft section and a Review section.
-
-## What would this button do?
-
-In drag and drop, I find the feedback before dropping at least as useful as the drop itself. It gives me a chance to notice that I am about to put something in the wrong place. I would like a similar chance before pressing a button whose meaning changes with its surroundings.
-
-Since our interpreter returned a plan, we can read that plan before running it. `interpret` does the same walk as `intent` and asks the same functions, then checks the proposed DOM operations and returns the result without executing them. The result includes a `trace` with the answers given along the way.
-
-Let's put the editor's answer under the button:
+The button's click handler raises the request with `intent(button, "ui:clear")`. The caption asks the same function with `interpret`, which walks up from the button, collects the plan, checks it, and returns it without running anything:
 
 ```js
 import { interpret } from "domocracy/intent";
 
-const apply = toolbar.querySelector("[data-intent='ui:apply']");
-const caption = toolbar.querySelector("#caption");
-
-function explainApply() {
-  const preview = interpret(apply, "ui:apply");
-  // This little editor has one answering scope.
-  const plan = preview.trace[0]?.plan;
-
-  caption.textContent = plan?.refused ?? plan?.meaning ?? "Nobody answers here.";
-  apply.setAttribute("aria-disabled", String(plan?.refused !== undefined));
-}
-
-const stopTyping = on(editor, "input", "input", explainApply);
-// Registered after the Apply handler, so we read the state it leaves behind.
-const stopExplaining = on(toolbar, "click", "button", explainApply);
-explainApply();
+const plan = interpret(button, "ui:clear").trace[0]?.plan;
+caption.textContent = plan?.refused ?? plan?.meaning ?? "Nothing here answers Clear.";
 ```
 
-The trace keeps each interpreter's original plan, including the extra fields we put on it. With an empty title, the caption reads “A title would help.” Type something and the caption says what would be kept, while the input's `defaultValue` remains unchanged until you press Apply. The caption and the click are asking the same function at different times.
-
-Here we can read `trace[0]` because only the editor answers. With nested scopes we would read each contribution, which is what the larger example does. The button is marked `aria-disabled` when the editor refuses, and remains clickable so its refusal can still be announced.
-
-In the [toolbar example](examples/toolbar/), every button has one of these captions underneath it, connected to the button through `aria-describedby`. A refused action is dimmed and marked `aria-disabled`, but you can still press it to hear its explanation through the status line. There is also a panel where you can look at each scope's answer and see the elements that its operations would affect.
-
-This needs a little housekeeping from the page. If the title changes, the caption needs to ask again. The example refreshes after input and change events, as well as clicks and raised intents. A change coming from somewhere else has to arrange its own refresh. And when the button is finally pressed, `intent` asks again too, since the answer we showed earlier may already be out of date.
-
-The interpreter needs to leave the page alone while answering. If it saved the form at that point, merely hovering the button to show a preview could save the form. That would be a rather enthusiastic tooltip.
+Beside the search field, the same two lines get the form's plan instead, because the walk from the button reaches the form's scope and not the list's. The example moves the button with the browser's own drag and drop, and a slot the button is dragged over asks the same question from itself, so it can say what the drop would mean before it happens. The [getting started guide](docs/getting-started.md) builds a page like this from scratch.
 
 ## More than one parent can have an opinion
 
-The toolbar can be inside a card, which is itself inside a board. Both of those elements may have something to say about Apply, so the card can answer with `continue` to let the request travel further up.
+In the [toolbar example](examples/toolbar/), a toolbar with an Apply button can be inside a card, which is itself inside a board. Both of those elements may have something to say about Apply, so the card can answer with `continue` to let the request travel further up.
 
 In the example, the card proposes toggling its completion state. The board then adds an effect to count the completed cards and returns `consume`. When the collected work runs, the card changes first and the tally runs afterward, so it sees the new state.
 
@@ -180,7 +98,7 @@ There is a detail here that is easy to get wrong. `consume` stops the walk, and 
 
 So far we have been talking about moving controls and updating cards. The core of domocracy handles these changes through **regions**. A region manages a container's direct child elements, using functions you provide to create and update them.
 
-Let's give the cards their own little list. This example is separate from the editor above, and starts with this HTML:
+Let's give the cards their own little list. This snippet stands on its own, and starts with this HTML:
 
 ```html
 <ul id="cards"></ul>
@@ -263,7 +181,9 @@ From a checkout of this repository, start a local server:
 python3 -m http.server 8000
 ```
 
-Then open `http://localhost:8000/examples/toolbar/`. I would start by moving toolbar A between the form and a card, looking at the captions before pressing anything. Once that makes sense, put B in the same card and remove the card. The panel shows the plan, and you can follow the order of the moves back to the dock.
+Then open `http://localhost:8000/examples/clear/`. Drag Clear between the search field and the todo list, read what the slot says before you drop, and read the caption before pressing anything.
+
+The [toolbar example](examples/toolbar/) at `http://localhost:8000/examples/toolbar/` has more of this: two toolbars, four rooms, and a panel that shows each scope's answer. I would start by moving toolbar A between the form and a card. Once that makes sense, put B in the same card and remove the card, and follow the order of the moves back to the dock in the panel.
 
 The [examples guide](examples/README.md) explains the files if you want to dig into the code. There is also a [navigation example](examples/navigation/) with recursive components, alongside the [canvas history example](examples/canvas-history/). They all run directly from the checkout, with no build step.
 

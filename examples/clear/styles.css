@@ -1,0 +1,113 @@
+/* Enough style to see the structure. Nothing here is required by domocracy. */
+:root {
+  color-scheme: light dark;
+  --ink: #14181f;
+  --paper: #fdfdfc;
+  --line: #d7d9de;
+  --accent: #2f6fed;
+  --muted: #5b6270;
+  --warn: #b26a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #e9ecf1; --paper: #14171c; --line: #333844; --accent: #7aa2ff; --muted: #9aa2b1; --warn: #e0a54a; }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2rem 1.25rem 4rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.55 system-ui, sans-serif;
+}
+main { max-width: 48rem; margin: 0 auto; }
+h1 { font-size: 1.6rem; }
+h2 { font-size: 1.1rem; margin-top: 2rem; }
+h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.checklist li { margin-bottom: 0.35rem; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.clear-demo { margin: 1.5rem 0; }
+
+/* Where Clear is: two places, one of them pressed. */
+.places { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 1rem; }
+.places-label { color: var(--muted); margin-right: 0.25rem; }
+.place {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+}
+.place[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+
+/* The two sections, one above the other. The one holding Clear is outlined. */
+.rooms { display: grid; gap: 1rem; }
+.room {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--paper) 85%, var(--ink) 4%);
+}
+.room:has(.control) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* The search field, with the slot beside it. */
+.row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.75rem; }
+.fields { flex: 1 1 10rem; }
+.field { display: flex; align-items: center; gap: 0.5rem; }
+.field input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: inherit;
+}
+.row > .slot { flex: 0 1 15rem; }
+
+/* The slots: where Clear can be. While Clear is dragged, the empty one is
+   offered, and while Clear is over it, it says what Clear would do there. */
+.slot { min-height: 3.6rem; padding: 0.4rem; border: 1px dashed var(--line); border-radius: 8px; transition: background 120ms; }
+.slot:not(:has(.control))::before { content: 'drag Clear here'; display: block; color: var(--muted); font-size: 0.8rem; line-height: 1.35; padding: 0.7rem 0.4rem; }
+.slot:has(.control) { border-style: solid; border-color: var(--accent); }
+.clear-demo[data-dragging] .slot:not(:has(.control)) { border-color: var(--accent); }
+.slot[data-would] { border-style: solid; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.slot[data-would]::before { content: attr(data-would); color: var(--ink); }
+.room > .slot { margin-top: auto; }
+
+/* The control: the button, and under it what pressing it would do here. */
+.control { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; max-width: 100%; cursor: grab; }
+.control:active { cursor: grabbing; }
+.clear-demo[data-dragging] .control { opacity: 0.5; }
+.clear {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--paper);
+  font-weight: 600;
+}
+.clear:hover { background: color-mix(in srgb, var(--accent) 12%, var(--paper)); }
+.clear[aria-disabled='true'] { opacity: 0.55; }
+.caption { margin: 0; font-size: 0.8rem; line-height: 1.35; color: var(--ink); }
+.clear[aria-disabled='true'] + .caption { color: var(--warn); }
+
+/* The todo list. */
+.tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.task label { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.35rem; border-radius: 6px; cursor: pointer; }
+.task label:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.task:has(input:checked) span { text-decoration: line-through; color: var(--muted); }
+.add {
+  align-self: flex-start;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}

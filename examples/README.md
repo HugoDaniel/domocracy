@@ -1,6 +1,6 @@
 # Examples
 
-Three runnable pages, each using the library from this checkout through an
+Four runnable pages, each using the library from this checkout through an
 import map. No build step, no dependencies, no bundler.
 
 ## Run them
@@ -11,6 +11,7 @@ Serve the repository root over HTTP and open the page you want:
 python3 -m http.server 8000
 ```
 
+- `http://localhost:8000/examples/clear/` for one Clear button that means what the section around it says
 - `http://localhost:8000/examples/navigation/` for the navigation components
 - `http://localhost:8000/examples/canvas-history/` for the canvas, undo and replay
 - `http://localhost:8000/examples/toolbar/` for one toolbar whose buttons mean what the room around them says
@@ -27,6 +28,26 @@ directory:
 Loading them through `file://` does not work: modules and import maps need HTTP.
 
 ## What each page shows
+
+### `clear/`: one button, two places
+
+One Clear button with one click handler, which raises `ui:clear` and nothing
+else. Beside the search field, the form's scope proposes emptying the field.
+In the todo list, the list's scope proposes removing the completed tasks. The
+caption under the button is the plan read with `interpret` before anything
+runs, so it says "Remove the 4 completed tasks." and counts again when a task
+is unticked. A refusal is a plan too, and the caption says why.
+
+The button travels by the browser's own drag and drop, with two place buttons
+for the keyboard. A slot being dragged over asks the same interpreter from
+itself and shows the answer, so the drop explains itself before it happens.
+
+- `main.js` is the whole page: the markup, the two scopes, the slots the
+  control moves between, the drag and drop, and the caption.
+
+Read it first. It is the smallest page here, and the shape the others grow
+from: a control that raises, a scope that reads and returns a plan, and a
+caption that asks the same function without running it.
 
 ### `navigation/`: components that make components
 
@@ -130,7 +151,7 @@ in headless Chrome, both from the repository root:
 
 ```sh
 npm run test:pure      # includes tests/pure/examples.test.mjs
-npm run test:browser   # includes tests/examples.test.js and tests/toolbar.test.js
+npm run test:browser   # includes tests/examples.test.js, tests/toolbar.test.js and tests/clear.test.js
 ```
 
 The pure suite covers commit validation, immutable snapshots, no-ops, the undo
