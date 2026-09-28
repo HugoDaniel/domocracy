@@ -36,7 +36,8 @@ test('an operation names the specs and entities it was built with', () => {
 test('check refuses the operations that cannot run', () => {
   const parent = branch(2), [first, second] = parent.children;
   const orphan = element('li'), elsewhere = branch(1);
-  assert.throws(() => validate(op.insert(parent, null, 'nope')), TypeError);
+  assert.throws(() => op.insert(parent, null, 'nope'), TypeError, 'a builder refuses a non-array where it enters');
+  assert.throws(() => op.remove('nope'), TypeError);
   assert.throws(() => validate(op.insert(parent, elsewhere.children[0], specs('a'))), RangeError);
   assert.throws(() => validate(op.move(first, parent, first)), RangeError);
   assert.throws(() => validate(op.move(parent, first, null)), RangeError);
@@ -377,6 +378,18 @@ test('a node moved out to a container with no region is dropped from the mirror'
   assert.equal(a.parentNode, loose, 'the node leaves');
   assert.deepEqual(list.items.map(item => item.name), ['b'], 'and its item goes with it');
   assert.deepEqual(seen, [1], 'the region that ran it hears about it, and there is nobody else to tell');
+});
+
+test('a region runs a move between two containers that have no region', () => {
+  const list = region(element('ul'), recorder(), { items: [] });
+  const here = element('ul'), there = element('ul'), node = element('li');
+  here.append(node);
+  const seen = [];
+  list.observe(group => seen.push(group.length));
+  list.execute(op.move(node, there, null));
+  assert.equal(node.parentNode, there, 'the node moves');
+  assert.deepEqual(list.items, [], 'no mirror is involved');
+  assert.deepEqual(seen, [1], 'the region that ran it hears about it');
 });
 
 test('swap says the same exchange by position or by node', () => {

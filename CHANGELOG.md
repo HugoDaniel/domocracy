@@ -15,6 +15,8 @@
   model of its own; the pre-flight and the run share one rule.
 - The single-operation fast path in the dry run is gone: every group is checked
   against the same model.
+- `op.insert` and `op.remove` refuse a non-array where the operation is built;
+  the dry run no longer checks it again.
 
 ## [1.1.0] - 2026-09-08
 
